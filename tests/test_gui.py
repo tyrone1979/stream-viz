@@ -45,7 +45,9 @@ def _post(port: int, path: str, payload: dict) -> dict:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=10) as response:
+    # /api/figure renders a matplotlib PNG on first use; under a loaded host
+    # (e.g. a GUI session running alongside the suite) this can exceed 10 s.
+    with urllib.request.urlopen(request, timeout=30) as response:
         return json.loads(response.read())
 
 
@@ -161,7 +163,12 @@ class GuiApiTests(unittest.TestCase):
             try:
                 first = app.start({"rate_mbps": 1.0, "duration_s": 0.3})
                 self.assertTrue(first["ok"])
-                time.sleep(0.5)
+                # The finite sender shuts the session down by itself.  Wait
+                # for that state instead of assuming a fixed 0.5 s is enough
+                # on a loaded host.
+                deadline = time.time() + 5.0
+                while time.time() < deadline and app.status == "running":
+                    time.sleep(0.02)
                 second = app.start({"rate_mbps": 2.0, "duration_s": 0.3})
                 self.assertTrue(second["ok"])
                 self.assertEqual(app.params["rate_mbps"], 2.0)
