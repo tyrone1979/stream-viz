@@ -23,7 +23,7 @@ import numpy as np
 from .buffers import BoundedFIFO, Signal
 from .metrics import Counters, LatencyMeter
 from .protocol import now_ms
-from .viewstate import ViewState
+from .viewstate import _SPECTRUM_SCALE, ViewState, energy_scale, trace_ceiling
 
 
 class DrainThread(threading.Thread):
@@ -143,13 +143,15 @@ class DisplayThread(threading.Thread):
         fig, axes = plt.subplots(2, 2, figsize=(11, 7))
         ax_water, ax_energy, ax_wave, ax_spec = axes.ravel()
         im_water = ax_water.imshow(
-            self._states[0][0], aspect="auto", origin="lower", cmap="viridis"
+            self._states[0][0], aspect="auto", origin="lower", cmap="viridis",
+            vmin=0.0, vmax=_SPECTRUM_SCALE,
         )
         ax_water.set_title("Rolling spectrogram")
         ax_water.set_xlabel("bin")
         ax_water.set_ylabel("time")
         im_energy = ax_energy.imshow(
-            self._states[0][1], aspect="auto", origin="lower", cmap="magma"
+            self._states[0][1], aspect="auto", origin="lower", cmap="magma",
+            vmin=0.0, vmax=energy_scale(self._states[0][1]),
         )
         ax_energy.set_title("Per-channel energy")
         ax_energy.set_xlabel("time")
@@ -163,12 +165,11 @@ class DisplayThread(threading.Thread):
         try:
             for idx, (waterfall, energy, waveform, spectrum) in enumerate(self._states, 1):
                 im_water.set_data(waterfall)
-                im_water.autoscale()
                 im_energy.set_data(energy)
-                im_energy.autoscale()
+                im_energy.set_clim(0.0, energy_scale(energy))
                 line_wave.set_ydata(waveform)
                 line_spec.set_ydata(spectrum)
-                ax_spec.set_ylim(0.0, max(1.5, float(spectrum.max()) * 1.1))
+                ax_spec.set_ylim(0.0, trace_ceiling(spectrum))
                 path = self.output_dir / f"view_{idx:02d}.png"
                 fig.savefig(path, dpi=110)
                 self.snapshots.append(path)

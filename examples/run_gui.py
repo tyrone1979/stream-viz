@@ -1,13 +1,14 @@
 """One-command interactive GUI.
 
     python examples/run_gui.py                       # synthetic smoke test
-    python examples/run_gui.py --source mitdb        # real MIT-BIH ECG record
+    python examples/run_gui.py --source mitdb        # real MIT-BIH ECG
+    python examples/run_gui.py --source gwosc        # real LIGO strain
     python examples/run_gui.py --no-browser          # serve only (remote/CI)
 
-The dashboard starts a stream immediately unless ``--idle`` is given.  The
-``mitdb`` source requires ``python tools/fetch_dataset.py`` once; it is
-checksum-verified before the pipeline starts.  Stopping with Ctrl-C shuts down
-the pipeline and writes ``output/gui/gui_report.json``.
+The dashboard starts a stream immediately unless ``--idle`` is given.  Real
+sources require ``python tools/fetch_dataset.py`` once and are checksum-verified
+before the pipeline starts.  Stopping with Ctrl-C shuts down the pipeline and
+writes ``output/gui/gui_report.json``.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from src.datasets import REGISTRY  # noqa: E402
 from src.gui import StreamVizApp, StreamVizServer  # noqa: E402
 
 
@@ -33,8 +35,9 @@ def main() -> int:
     parser.add_argument("--capacity", type=int, default=64, help="display FIFO capacity")
     parser.add_argument("--refresh", type=float, default=30.0, help="display timer Hz")
     parser.add_argument("--malformed", type=float, default=0.01)
-    parser.add_argument("--source", choices=("synthetic", "mitdb"), default="synthetic",
-                        help="synthetic smoke data, or the verified real MIT-BIH ECG")
+    parser.add_argument("--source", choices=("synthetic", *sorted(REGISTRY)),
+                        default="synthetic",
+                        help="synthetic smoke data, or any registered real dataset")
     parser.add_argument("--duration", type=float, default=3600.0,
                         help="sender duration in seconds (default: until Stop)")
     parser.add_argument("--output", default="output/gui")

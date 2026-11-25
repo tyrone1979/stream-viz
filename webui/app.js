@@ -112,6 +112,7 @@
   let seeking = false;
   let toastTimer = null;
   let sourceSynced = false;
+  let datasetsSynced = false;
 
   function toast(message) {
     const el = $('toast');
@@ -125,7 +126,19 @@
     const status = s.status || 'offline';
     $('statusPill').className = 'pill ' + (status === 'running' ? 'running' : status === 'stopped' ? 'stopped' : '');
     $('statusText').textContent = status;
-    if (!sourceSynced && s.config) {
+    if (!datasetsSynced && Array.isArray(s.datasets)) {
+      // The server is the single source of truth for available domains: a
+      // newly registered dataset appears here without any front-end change.
+      const options = [new Option('Synthetic (smoke test)', 'synthetic')];
+      s.datasets.forEach((d) => {
+        const opt = new Option(d.label.split(' — ')[0], d.key);
+        opt.title = `${d.domain} · ${d.license} · DOI ${d.doi}`;
+        options.push(opt);
+      });
+      $('source').replaceChildren(...options);
+      datasetsSynced = true;
+    }
+    if (!sourceSynced && s.config && datasetsSynced) {
       // Mirror the server's active parameters once, so a session started from
       // the CLI (or by the screenshot tool) cannot disagree with the form.
       $('source').value = s.config.source || 'synthetic';
@@ -136,10 +149,12 @@
       sourceSynced = true;
     }
     const src = s.source || {};
-    const isReal = src.kind === 'mitdb';
-    $('sourceBadge').textContent = isReal ? 'REAL · MIT-BIH ECG' : 'SYNTHETIC';
+    const isReal = Boolean(src.kind && src.kind !== 'synthetic');
+    const shortName = src.dataset ? src.dataset.label.split(' — ')[0] : '';
+    $('sourceBadge').textContent = isReal ? `REAL · ${shortName}` : 'SYNTHETIC';
     $('sourceBadge').className = 'badge' + (isReal ? ' real' : '');
-    $('endpoint').textContent = `${isReal ? 'PhysioNet record 100' : 'local generator'} · udp ${s.config.udp_port} · ${s.config.refresh_hz} Hz · ${s.config.frame_capacity} frames`;
+    const origin = isReal && src.provenance ? src.provenance.record : 'local generator';
+    $('endpoint').textContent = `${origin} · udp ${s.config.udp_port} · ${s.config.refresh_hz} Hz · ${s.config.frame_capacity} frames`;
 
     const c = s.metrics.counters || {};
     $('mThroughput').textContent = Number(s.metrics.throughput_mbps || 0).toFixed(2);
@@ -159,7 +174,8 @@
       drawHeat('c-energy', s.views.energy, LUT_ENERGY);
       drawTrace('c-wave', s.views.waveform, '#45d0c8', -1.5, 1.5, true);
       const spec = s.views.spectrum;
-      drawTrace('c-spec', spec, '#ffb457', 0, Math.max(1.5, ...spec) * 1.08, false);
+      drawTrace('c-spec', spec, '#ffb457', 0,
+                s.trace_ceiling || Math.max(1.5, ...spec) * 1.08, false);
       $('versionBadge').textContent = `version ${s.view_version}`;
       $('frameInfo').textContent = `${s.frames} rendered frames · ${c.display_frames || 0} spectrum packets · poll 8 Hz`;
     }

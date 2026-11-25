@@ -1,16 +1,17 @@
-"""Download the open dataset used by the real-data benchmark.
+"""Download and verify every registered open dataset.
 
-    python tools/fetch_dataset.py
+    python tools/fetch_dataset.py                 # all registered datasets
+    python tools/fetch_dataset.py --dataset gwosc
 
-Fetches record 100 of the MIT-BIH Arrhythmia Database from PhysioNet and
-verifies the SHA-256 of every file against ``src/open_dataset.py``.  The
-signal files are deliberately NOT committed to this repository: ODC-By 1.0
-allows redistribution, but requiring an explicit download keeps the upstream
-provenance and attribution unambiguous.
+Each dataset declares its own upstream URL, expected SHA-256 and citation in
+``src/datasets.py``.  Signal files are deliberately NOT committed to this
+repository: their licenses permit redistribution, but requiring an explicit
+download keeps upstream provenance and attribution unambiguous.
 """
 
 from __future__ import annotations
 
+import argparse
 import sys
 import urllib.request
 from pathlib import Path
@@ -19,27 +20,26 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from src.open_dataset import DATASET, DEFAULT_DATA_DIR, EXPECTED_SHA256, sha256_file, verify_files  # noqa: E402
-
-_BASE = "https://physionet.org/files/mitdb/1.0.0/"
+from src.datasets import REGISTRY, sha256_file, verify_files  # noqa: E402
 
 
-def main() -> int:
-    DEFAULT_DATA_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"Dataset : {DATASET['name']} v{DATASET['version']}")
-    print(f"License : {DATASET['license']}")
-    print(f"DOI     : {DATASET['doi']}")
-    print(f"Source  : {DATASET['url']}")
-    print(f"Target  : {DEFAULT_DATA_DIR}\n")
+def fetch(key: str) -> int:
+    spec = REGISTRY[key]
+    spec.data_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Dataset : {spec.name} ({spec.domain})")
+    print(f"License : {spec.license}")
+    print(f"DOI     : {spec.doi}")
+    print(f"Source  : {spec.url}")
+    print(f"Target  : {spec.data_dir}\n")
 
-    for name, expected in EXPECTED_SHA256.items():
-        path = DEFAULT_DATA_DIR / name
+    for name, expected in spec.files.items():
+        path = spec.data_dir / name
         if path.is_file() and sha256_file(path) == expected:
             print(f"[ok]      {name} already present and verified")
             continue
-        url = _BASE + name
+        url = spec.download_base + name
         print(f"[fetch]   {url}")
-        with urllib.request.urlopen(url, timeout=90) as response:
+        with urllib.request.urlopen(url, timeout=120) as response:
             payload = response.read()
         path.write_bytes(payload)
         digest = sha256_file(path)
@@ -49,11 +49,29 @@ def main() -> int:
             return 1
 
     print("\nVerified files:")
-    for name, digest in verify_files(DEFAULT_DATA_DIR).items():
+    for name, digest in verify_files(spec.data_dir, key).items():
         print(f"  {name}  {digest}")
     print("\nCite this dataset in any publication using these measurements:")
-    print(f"  {DATASET['citation']}")
-    print(f"  https://doi.org/{DATASET['doi']}")
+    print(f"  {spec.citation}")
+    print(f"  https://doi.org/{spec.doi}")
+    if spec.acknowledgement:
+        print(f"  {spec.acknowledgement}")
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Fetch verified open datasets")
+    parser.add_argument("--dataset", default="all",
+                        choices=("all", *sorted(REGISTRY)),
+                        help="which registered dataset to fetch")
+    args = parser.parse_args()
+    keys = sorted(REGISTRY) if args.dataset == "all" else [args.dataset]
+    for i, key in enumerate(keys):
+        if i:
+            print("\n" + "=" * 72 + "\n")
+        rc = fetch(key)
+        if rc:
+            return rc
     return 0
 
 

@@ -135,7 +135,12 @@ def send_stream(
                 while time.perf_counter() < next_slot:
                     pass
             else:
-                next_slot = time.perf_counter()
+                # Same catch-up policy as the real-data sender: keep up to
+                # 100 ms of pacing debt under load instead of permanently
+                # losing throughput every time the OS scheduler delays us.
+                behind = time.perf_counter() - next_slot
+                if behind > 0.1:
+                    next_slot = time.perf_counter() - 0.1
     finally:
         sock.close()
     actual = time.perf_counter() - t0

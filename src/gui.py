@@ -26,8 +26,9 @@ from urllib.parse import parse_qs, urlparse
 
 import numpy as np
 
+from .datasets import REGISTRY, available_datasets, get_spec, load_dataset
 from .metrics import Counters, LatencyMeter
-from .open_dataset import DATASET, ReplaySpec, load_record, send_record
+from .open_dataset import ReplaySpec, send_record
 from .pipeline import PipelineConfig, StreamPipeline
 from .synthetic import StreamSpec, send_stream
 from .viewstate import ViewState
@@ -167,7 +168,7 @@ class StreamVizApp:
         self._sender_stop: Optional[threading.Event] = None
         self.status = "idle"
         self.params: Dict[str, Any] = {
-            "source": "synthetic",  # or "mitdb" for the verified real ECG record
+            "source": "synthetic",  # or any key in src.datasets.REGISTRY
             "rate_mbps": 4.0,
             "frame_capacity": 64,
             "refresh_hz": 30.0,
@@ -180,6 +181,8 @@ class StreamVizApp:
         self._idle_state = ViewState()
         self._metrics_cache: Dict[str, Any] = {}
         self._metrics_ts = 0.0
+        self._view_cache: Dict[str, Any] = {}
+        self._view_cached_version = -1
 
     def _log(self, message: str) -> None:
         stamp = time.strftime("%H:%M:%S")
@@ -197,22 +200,30 @@ class StreamVizApp:
             if self.status == "stopped" and self.pipeline is not None:
                 self._stop_locked()
             source = str(merged.get("source", "synthetic")).lower()
-            if source not in ("synthetic", "mitdb"):
-                return {"ok": False, "message": f"unknown source: {source}"}
+            if source != "synthetic" and source not in REGISTRY:
+                return {
+                    "ok": False,
+                    "message": (
+                        f"unknown source: {source}; available: "
+                        f"synthetic, {', '.join(sorted(REGISTRY))}"
+                    ),
+                }
 
             # Load and verify the open dataset BEFORE creating the pipeline,
             # so a missing/corrupt download produces a clean error instead of
-            # an apparently healthy but silent session.
+            # an apparently healthy but silent session.  The pipeline itself
+            # never needs to know which scientific domain the samples came
+            # from -- that is the adapter's job.
             record = None
-            if source == "mitdb":
+            if source in REGISTRY:
                 try:
-                    record = load_record("100")
+                    record = load_dataset(source)
                 except (FileNotFoundError, ValueError, OSError) as exc:
                     self._log(f"open dataset unavailable: {exc}")
                     return {
                         "ok": False,
                         "message": (
-                            "MIT-BIH record not found or checksum mismatch; "
+                            f"{source} not found or checksum mismatch; "
                             "run `python tools/fetch_dataset.py` first"
                         ),
                     }
@@ -241,7 +252,7 @@ class StreamVizApp:
                 sample_rate=cfg.sample_rate,
             )
             if record is not None:
-                spec = ReplaySpec(**common, loop=True)
+                spec = ReplaySpec(**common, dataset=source, loop=True)
             else:
                 spec = StreamSpec(**common, n_channels=cfg.n_channels)
             self._sender_stop = threading.Event()
@@ -332,11 +343,16 @@ class StreamVizApp:
 
     def state(self) -> Dict[str, Any]:
         with self._lock:
-            snap = (
-                self.consumer.state.snapshot()
-                if self.consumer is not None
-                else self._idle_state.snapshot()
-            )
+            state = self.consumer.state if self.consumer is not None else self._idle_state
+            # Encoding four views costs two base64 passes over full heatmaps.
+            # A headless browser with a virtual-time budget can poll hundreds
+            # of times between two timer ticks; re-encoding the same version
+            # would steal CPU from the display consumer and inflate the very
+            # latency the figure is meant to show.  Cache by view version.
+            if state.version != self._view_cached_version:
+                self._view_cache = state.snapshot()
+                self._view_cached_version = state.version
+            snap = self._view_cache
             if self.pipeline is not None:
                 segments = list(self.pipeline.audio_archive.segments)
                 self._segments_after_stop = list(segments)
@@ -364,22 +380,28 @@ class StreamVizApp:
             metrics = dict(self._metrics_cache)
             metrics["rendered_frames"] = snap["frames"]
             kind = str(self.params.get("source", "synthetic")).lower()
+            if kind in REGISTRY:
+                spec = get_spec(kind)
+                label = f"{spec.label} (real open data)"
+                dataset = spec.metadata
+            else:
+                label = "Synthetic (for smoke tests)"
+                dataset = None
             source_info: Dict[str, Any] = {
                 "kind": kind,
-                "label": (
-                    "MIT-BIH ECG (real, ODC-By 1.0)"
-                    if kind == "mitdb" else "Synthetic (for smoke tests)"
-                ),
-                "dataset": DATASET if kind == "mitdb" else None,
+                "label": label,
+                "domain": dataset["domain"] if dataset else "Synthetic benchmark",
+                "dataset": dataset,
                 "provenance": (
                     self._real_record.provenance
-                    if kind == "mitdb" and self._real_record is not None else None
+                    if dataset and self._real_record is not None else None
                 ),
             }
             return {
                 "status": self.status,
                 "config": {**self.params, "udp_port": self.udp_port},
                 "source": source_info,
+                "datasets": available_datasets(),
                 "view_version": snap["version"],
                 "frames": snap["frames"],
                 "views": snap["views"],
@@ -428,7 +450,7 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, path.read_bytes(), content_type)
             return
         if url.path == "/api/state":
-            self._json(self.server.app.state())
+            self._json(self.server.cached_state())
             return
         if url.path == "/api/audio":
             query = parse_qs(url.query)
@@ -460,6 +482,7 @@ class _Handler(BaseHTTPRequestHandler):
             self._json({"ok": False, "message": "invalid JSON"}, 400)
             return
         app = self.server.app
+        self.server.invalidate_state()  # control actions must be visible at once
         if url.path == "/api/figure":
             self._json(app.save_figure())
             return
@@ -486,3 +509,25 @@ class StreamVizServer(ThreadingHTTPServer):
     def __init__(self, address: Tuple[str, int], app: StreamVizApp) -> None:
         super().__init__(address, _Handler)
         self.app = app
+        self._state_lock = threading.Lock()
+        self._state_cache: Optional[Dict[str, Any]] = None
+        self._state_ts = 0.0
+
+    def cached_state(self) -> Dict[str, Any]:
+        """Serve one state snapshot per 50 ms regardless of client poll rate.
+
+        A headless browser with a virtual-time budget can fire hundreds of
+        polls between two timer ticks.  Rebuilding the full JSON (four views,
+        audio index, provenance) for each one would starve the display
+        consumer and inflate the latency shown in the captured figure.
+        """
+        with self._state_lock:
+            now = time.monotonic()
+            if self._state_cache is None or now - self._state_ts >= 0.05:
+                self._state_cache = self.app.state()
+                self._state_ts = now
+            return self._state_cache
+
+    def invalidate_state(self) -> None:
+        with self._state_lock:
+            self._state_cache = None

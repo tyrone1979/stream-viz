@@ -6,8 +6,9 @@ from .buffers import BoundedFIFO, Datagram, Signal
 from .player import AudioArchive, AudioPlayer, NullSink
 from .viewstate import ViewState
 from .open_dataset import DATASET, RealRecord, ReplaySpec, load_record, send_record, verify_files
+from .datasets import DatasetSpec, REGISTRY, available_datasets, get_spec, load_dataset
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 __all__ = [
     "PipelineConfig",
     "StreamPipeline",
@@ -29,4 +30,9 @@ __all__ = [
     "load_record",
     "send_record",
     "verify_files",
+    "DatasetSpec",
+    "REGISTRY",
+    "available_datasets",
+    "get_spec",
+    "load_dataset",
 ]

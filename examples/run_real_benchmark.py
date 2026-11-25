@@ -1,17 +1,18 @@
-"""Measure StreamViz against a REAL open dataset, not synthetic traffic.
+"""Measure StreamViz against registered REAL open datasets (cross-domain).
 
-    python tools/fetch_dataset.py            # once: download + verify
-    python examples/run_real_benchmark.py    # measure + figure
+    python tools/fetch_dataset.py                     # once: download + verify
+    python examples/run_real_benchmark.py --dataset mitdb
+    python examples/run_real_benchmark.py --dataset all   # both domains
 
-The workload is record 100 of the MIT-BIH Arrhythmia Database (PhysioNet,
-ODC-By 1.0, DOI 10.13026/C2F305): a 30-minute two-lead ECG at 360 Hz.  The
-recorded samples are packed into the same UDP protocol as the synthetic demo,
-so every packet in this benchmark is derived from measured human physiology.
-See ``src/open_dataset.py`` for the provenance, checksums and the exact
-derivation of each payload type.
+Every registered dataset is a verified, openly licensed recording from a
+different scientific domain (biomedical ECG and gravitational-wave strain).
+Recorded samples are packed into the same UDP protocol as the synthetic demo,
+so the ingest/display/replay code is identical for both; only the adapter
+in ``src/datasets.py`` changes.  See that module for provenance, checksums
+and the exact preprocessing of each dataset.
 
-Outputs ``output/real_benchmark/real_benchmark.json`` and, unless disabled,
-four-view PNG snapshots under ``output/real_benchmark/figures/``.
+Outputs ``<output>/real_benchmark.json`` (or ``<output>/<key>/...`` when
+``--dataset all``) plus four-view PNG snapshots for one rate per dataset.
 """
 
 from __future__ import annotations
@@ -29,24 +30,20 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from src.open_dataset import (  # noqa: E402
-    DATASET,
-    ReplaySpec,
-    load_record,
-    send_record,
-)
+from src.datasets import FRAME_SAMPLES, REGISTRY, load_dataset  # noqa: E402
+from src.open_dataset import ReplaySpec, _frame_payloads, send_record  # noqa: E402
 from src.pipeline import PipelineConfig, StreamPipeline  # noqa: E402
 
 
 def _payload_authenticity(rec) -> dict:
-    """Show that the emitted payloads equal the decoded recording, not a model."""
-    from src.open_dataset import _frame_payloads
-
+    """Show that the emitted payloads equal the recorded samples, not a model."""
     spec = ReplaySpec()
-    packets = _frame_payloads(rec, spec, 137)
+    frame = 137
+    n_frames = rec.n_samples // FRAME_SAMPLES
+    start = (frame % n_frames) * FRAME_SAMPLES
+    packets = _frame_payloads(rec, spec, frame)
     spectrum, waveform, audio_a, audio_b = (p[1] for p in packets)
-    start = 137 * 1024
-    source = rec.signals[start : start + 1024, 137 % rec.n_channels]
+    source = rec.signals[start : start + FRAME_SAMPLES, frame % rec.n_channels]
     segment = source[:512].copy()
     segment -= segment.mean()
     magnitude = (
@@ -91,8 +88,8 @@ def _sender_worker(spec, result_queue) -> None:
         result_queue.put({"error": f"{type(exc).__name__}: {exc}"})
 
 
-def _one_run(rec, rate: float, capacity: int, duration: float, port: int,
-             output_dir: Path, figures: bool, loop: bool) -> dict:
+def _one_run(rec, dataset_key: str, rate: float, capacity: int, duration: float,
+             port: int, output_dir: Path, figures: bool, loop: bool) -> dict:
     cfg = PipelineConfig(
         port=port,
         frame_capacity=capacity,
@@ -110,6 +107,7 @@ def _one_run(rec, rate: float, capacity: int, duration: float, port: int,
         waveform_len=256,
         audio_len=512,
         sample_rate=cfg.sample_rate,
+        dataset=dataset_key,
         loop=loop,
     )
     pipeline = StreamPipeline(cfg).start()
@@ -152,38 +150,26 @@ def _one_run(rec, rate: float, capacity: int, duration: float, port: int,
     }
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Real open-data benchmark")
-    parser.add_argument("--rates", default="1,2,4,8",
-                        help="comma-separated target Mbit/s")
-    parser.add_argument("--capacity", type=int, default=64)
-    parser.add_argument("--duration", type=float, default=6.0,
-                        help="seconds per run")
-    parser.add_argument("--port", type=int, default=19100)
-    parser.add_argument("--figure-rate", type=float, default=4.0,
-                        help="which run also renders PNG views")
-    parser.add_argument("--no-figures", action="store_true")
-    parser.add_argument("--no-loop", action="store_true",
-                        help="use each recorded sample at most once")
-    parser.add_argument("--output", default="output/real_benchmark")
-    args = parser.parse_args()
-
-    output_dir = Path(args.output)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    rec = load_record("100")
+def _measure(key: str, args, output_dir: Path) -> dict:
+    rec = load_dataset(key)
+    spec = REGISTRY[key]
     rates = [float(x) for x in args.rates.split(",") if x.strip()]
 
-    print("Dataset :", DATASET["name"], "record", rec.record)
-    print("License :", DATASET["license"], "| DOI", DATASET["doi"])
+    print(f"\n{'=' * 72}")
+    print("Dataset :", spec.name, "| record", rec.record, "| domain", spec.domain)
+    print("License :", spec.license, "| DOI", spec.doi)
     print("Signal  :", rec.sig_names, rec.fs, "Hz,", rec.n_samples,
-          "samples/lead,", round(rec.n_samples / rec.fs / 60, 2), "min")
-    print("SHA256  :", rec.checksums["100.dat"])
+          "samples/ch,", round(rec.n_samples / rec.fs, 2), "s")
+    print("Units   :", rec.physical_units)
+    print("Prep    :", rec.preprocessing)
+    for name, digest in rec.checksums.items():
+        print(f"SHA256  : {name} {digest}")
     print()
 
     runs = []
     for i, rate in enumerate(rates):
         figures = (not args.no_figures) and abs(rate - args.figure_rate) < 1e-9
-        result = _one_run(rec, rate, args.capacity, args.duration,
+        result = _one_run(rec, key, rate, args.capacity, args.duration,
                           args.port + i, output_dir, figures, not args.no_loop)
         runs.append(result)
         m = result["measured"]
@@ -224,8 +210,52 @@ def main() -> int:
     }
     path = output_dir / "real_benchmark.json"
     path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
-    print("\nAuthenticity checks:", report["payload_authenticity"])
-    print("Report written to:", path.resolve())
+    print("Authenticity:", report["payload_authenticity"])
+    print("Report:", path.resolve())
+    return {"key": key, "domain": spec.domain, "doi": spec.doi,
+            "report": str(path), "runs": runs}
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Cross-domain real open-data benchmark")
+    parser.add_argument("--dataset", default="mitdb",
+                        choices=("all", *sorted(REGISTRY)),
+                        help="registered dataset to measure, or 'all'")
+    parser.add_argument("--rates", default="1,2,4,8",
+                        help="comma-separated target Mbit/s")
+    parser.add_argument("--capacity", type=int, default=64)
+    parser.add_argument("--duration", type=float, default=6.0,
+                        help="seconds per run")
+    parser.add_argument("--port", type=int, default=19100)
+    parser.add_argument("--figure-rate", type=float, default=4.0,
+                        help="which run also renders PNG views")
+    parser.add_argument("--no-figures", action="store_true")
+    parser.add_argument("--no-loop", action="store_true",
+                        help="use each recorded sample at most once")
+    parser.add_argument("--output", default="output/real_benchmark")
+    args = parser.parse_args()
+
+    keys = sorted(REGISTRY) if args.dataset == "all" else [args.dataset]
+    root = Path(args.output)
+    root.mkdir(parents=True, exist_ok=True)
+    summaries = []
+    for key in keys:
+        out = root / key if len(keys) > 1 else root
+        out.mkdir(parents=True, exist_ok=True)
+        summaries.append(_measure(key, args, out))
+
+    if len(keys) > 1:
+        summary_path = root / "cross_domain_summary.json"
+        summary_path.write_text(
+            json.dumps({
+                "domains": keys,
+                "datasets": [REGISTRY[k].public for k in keys],
+                "summaries": summaries,
+            }, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        print("\nCross-domain summary:", summary_path.resolve())
+        print("Cite every dataset above in any figure caption built from it.")
     return 0
 
 

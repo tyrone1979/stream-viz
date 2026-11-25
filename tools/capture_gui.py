@@ -2,11 +2,13 @@
 
     python tools/capture_gui.py
 
-Starts the real GUI server with a short synthetic stream, lets data accumulate,
-then takes a screenshot of the live dashboard.  No browser extension or
-third-party Python package is required; only a locally installed Chrome or
-Edge.  The screenshot is a genuine capture of the running application, not a
-hand-drawn diagram.
+Starts the real GUI server with a short stream from any registered source, lets
+data accumulate, then takes a screenshot of the live dashboard.  No browser
+extension or third-party Python package is required; only a locally installed
+Chrome or Edge.  The screenshot is a genuine capture of the running
+application, not a hand-drawn diagram.
+
+    python tools/capture_gui.py --source gwosc --output output/figures/gui_gwosc.png
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from src.datasets import REGISTRY  # noqa: E402
 from src.gui import StreamVizApp, StreamVizServer  # noqa: E402
 
 _BROWSER_PATHS = [
@@ -54,12 +57,13 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=8766)
     parser.add_argument("--udp-port", type=int, default=19001)
     parser.add_argument("--rate", type=float, default=4.0)
-    parser.add_argument("--source", choices=("synthetic", "mitdb"), default="synthetic",
-                        help="capture the synthetic smoke test or the real MIT-BIH ECG")
+    parser.add_argument("--source", choices=("synthetic", *sorted(REGISTRY)),
+                        default="synthetic",
+                        help="capture the synthetic smoke test or any registered real dataset")
     parser.add_argument("--wait", type=float, default=1.5,
                         help="seconds of traffic to accumulate before capture")
     parser.add_argument("--width", type=int, default=1440)
-    parser.add_argument("--height", type=int, default=1100)
+    parser.add_argument("--height", type=int, default=1160)
     parser.add_argument("--virtual-time", type=int, default=1500,
                         help="headless browser virtual time budget in ms")
     args = parser.parse_args()
@@ -72,8 +76,11 @@ def main() -> int:
     app.params.update({
         "source": args.source,
         "rate_mbps": args.rate,
-        "duration_s": max(12.0, args.wait + 10),
-        "malformed_ratio": 0.0 if args.source == "mitdb" else 0.01,
+        # Keep the session alive well past the screenshot: a finite sender
+        # auto-stops the pipeline, which would otherwise leave the captured
+        # figure showing STOPPED instead of a live measurement.
+        "duration_s": max(90.0, args.wait + 80),
+        "malformed_ratio": 0.0 if args.source != "synthetic" else 0.01,
     })
     started = app.start()
     if not started.get("ok"):

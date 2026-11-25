@@ -43,11 +43,23 @@ class ParserThread(threading.Thread):
         self._last_seq: Optional[int] = None
 
     def run(self) -> None:
-        while not self.stop_event.is_set():
+        while True:
             batch = self.source.drain()
             if not batch:
-                self.stop_event.wait(self.idle_wait)
-                continue
+                if self.stop_event.is_set():
+                    # On shutdown the source FIFO may still hold hundreds of
+                    # datagrams at high rates.  Exiting immediately would make
+                    # `parsed_packets` under-report `udp_datagrams` for reasons
+                    # that have nothing to do with the pipeline under test.
+                    # Allow a short grace period for the receiver's final
+                    # pushes, then drain once more before leaving.
+                    self.stop_event.wait(0.01)
+                    batch = self.source.drain()
+                    if not batch:
+                        break
+                else:
+                    self.stop_event.wait(self.idle_wait)
+                    continue
             for item in batch:
                 packet, reason = decode(item.data, item.received_ms)
                 if packet is None:

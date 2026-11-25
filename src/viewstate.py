@@ -19,14 +19,26 @@ import numpy as np
 from .metrics import Counters, LatencyMeter
 from .protocol import PacketType, now_ms
 
-# Fixed scales (rather than per-frame autoscale) keep colours comparable
-# between successive polls and between the PNG and browser front-ends.  The
-# energy view integrates each batch with a 0.85 decay, so its steady state
-# depends on how many packets the display timer drains per tick (which varies
-# with sender rate and host load).  Its colour scale therefore uses a fixed
-# floor plus an adaptive ceiling; the spectrum scale stays fully fixed.
+# The spectrum payloads are normalised by a per-record reference, so a fixed
+# ceiling keeps colours comparable across frames and front-ends.  The energy
+# view, by contrast, integrates batches with a 0.85 decay: its steady-state
+# magnitude depends on the packet rate, the display timer and the *domain*
+# (ECG energy ~1, band-passed strain ~0.1).  An absolute floor would flatten
+# one domain and saturate the other, so both renderers share this relative
+# adaptive scale instead of matplotlib's autoscale (which over-amplifies the
+# tiny difference between two channels and hides the time structure).
 _SPECTRUM_SCALE = 1.5
-_ENERGY_SCALE_FLOOR = 0.8
+
+
+def energy_scale(energy: np.ndarray) -> float:
+    """Relative colour ceiling used by BOTH the PNG and browser renderers."""
+    ceiling = float(np.percentile(energy, 99)) * 1.15
+    return max(ceiling, float(np.max(energy)) * 0.4, 1e-6)
+
+
+def trace_ceiling(values: np.ndarray) -> float:
+    """Upper y-limit for the spectrum trace, shared by both renderers."""
+    return max(0.1, float(np.max(values)) * 1.15)
 
 
 def _quantise(array: np.ndarray, scale: float) -> str:
@@ -108,10 +120,7 @@ class ViewState:
     def snapshot(self) -> Dict:
         """JSON-ready, compact representation of the current views."""
         with self._lock:
-            energy_scale = max(
-                _ENERGY_SCALE_FLOOR,
-                float(np.percentile(self.energy, 99)) * 1.05,
-            )
+            e_scale = energy_scale(self.energy)
             return {
                 "version": self.version,
                 "frames": self.frames,
@@ -123,10 +132,11 @@ class ViewState:
                     },
                     "energy": {
                         "shape": [self.n_channels, self.history],
-                        "scale": round(energy_scale, 4),
-                        "pixels": _quantise(self.energy, energy_scale),
+                        "scale": round(e_scale, 4),
+                        "pixels": _quantise(self.energy, e_scale),
                     },
                     "waveform": [round(float(v), 4) for v in self.last_waveform],
                     "spectrum": [round(float(v), 4) for v in self.last_spectrum],
                 },
+                "trace_ceiling": round(trace_ceiling(self.last_spectrum), 4),
             }
