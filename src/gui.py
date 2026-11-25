@@ -382,7 +382,7 @@ class StreamVizApp:
             kind = str(self.params.get("source", "synthetic")).lower()
             if kind in REGISTRY:
                 spec = get_spec(kind)
-                label = f"{spec.label} (real open data)"
+                label = spec.label
                 dataset = spec.metadata
             else:
                 label = "Synthetic (for smoke tests)"
