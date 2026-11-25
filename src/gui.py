@@ -27,6 +27,7 @@ from urllib.parse import parse_qs, urlparse
 import numpy as np
 
 from .metrics import Counters, LatencyMeter
+from .open_dataset import DATASET, ReplaySpec, load_record, send_record
 from .pipeline import PipelineConfig, StreamPipeline
 from .synthetic import StreamSpec, send_stream
 from .viewstate import ViewState
@@ -166,12 +167,14 @@ class StreamVizApp:
         self._sender_stop: Optional[threading.Event] = None
         self.status = "idle"
         self.params: Dict[str, Any] = {
+            "source": "synthetic",  # or "mitdb" for the verified real ECG record
             "rate_mbps": 4.0,
             "frame_capacity": 64,
             "refresh_hz": 30.0,
             "malformed_ratio": 0.01,
             "duration_s": 3600.0,
         }
+        self._real_record = None
         self.events: List[str] = []
         self.last_report: Dict[str, Any] = {}
         self._idle_state = ViewState()
@@ -193,6 +196,28 @@ class StreamVizApp:
                     merged[key] = value
             if self.status == "stopped" and self.pipeline is not None:
                 self._stop_locked()
+            source = str(merged.get("source", "synthetic")).lower()
+            if source not in ("synthetic", "mitdb"):
+                return {"ok": False, "message": f"unknown source: {source}"}
+
+            # Load and verify the open dataset BEFORE creating the pipeline,
+            # so a missing/corrupt download produces a clean error instead of
+            # an apparently healthy but silent session.
+            record = None
+            if source == "mitdb":
+                try:
+                    record = load_record("100")
+                except (FileNotFoundError, ValueError, OSError) as exc:
+                    self._log(f"open dataset unavailable: {exc}")
+                    return {
+                        "ok": False,
+                        "message": (
+                            "MIT-BIH record not found or checksum mismatch; "
+                            "run `python tools/fetch_dataset.py` first"
+                        ),
+                    }
+            self._real_record = record
+            n_channels = record.n_channels if record is not None else 4
             cfg = PipelineConfig(
                 host="127.0.0.1",
                 port=self.udp_port,
@@ -200,38 +225,48 @@ class StreamVizApp:
                 refresh_hz=max(1.0, float(merged["refresh_hz"])),
                 output_dir=self.output_dir,
                 enable_display=False,
+                n_channels=n_channels,
             )
             self.pipeline = StreamPipeline(cfg, display_factory=GuiConsumer.for_pipeline)
             self.consumer = self.pipeline.display
             self.pipeline.start()
-            spec = StreamSpec(
+            common = dict(
                 host="127.0.0.1",
                 port=self.udp_port,
                 duration_s=max(0.2, float(merged["duration_s"])),
                 rate_mbps=max(0.1, float(merged["rate_mbps"])),
                 malformed_ratio=min(0.5, max(0.0, float(merged["malformed_ratio"]))),
                 n_bins=cfg.n_bins,
-                n_channels=cfg.n_channels,
                 audio_len=512,
                 sample_rate=cfg.sample_rate,
             )
+            if record is not None:
+                spec = ReplaySpec(**common, loop=True)
+            else:
+                spec = StreamSpec(**common, n_channels=cfg.n_channels)
             self._sender_stop = threading.Event()
             self._sender = threading.Thread(
-                target=self._run_sender, args=(spec,), name="gui-sender", daemon=True
+                target=self._run_sender,
+                args=(spec, record),
+                name="gui-sender",
+                daemon=True,
             )
             self._sender.start()
             self.params = merged
             self.status = "running"
             self._log(
-                f"stream started: {merged['rate_mbps']} Mbit/s, "
+                f"stream started: {source} data, {merged['rate_mbps']} Mbit/s, "
                 f"display FIFO {merged['frame_capacity']}, "
                 f"refresh {merged['refresh_hz']} Hz"
             )
-            return {"ok": True, "message": "stream started"}
+            return {"ok": True, "message": f"stream started ({source})"}
 
-    def _run_sender(self, spec: StreamSpec) -> None:
+    def _run_sender(self, spec, record=None) -> None:
         try:
-            stats = send_stream(spec, stop_event=self._sender_stop)
+            if isinstance(spec, ReplaySpec):
+                stats = send_record(spec, stop_event=self._sender_stop, record=record)
+            else:
+                stats = send_stream(spec, stop_event=self._sender_stop)
             self._log(f"sender finished: {stats['sent_packets']} datagrams")
         except Exception as exc:  # keep the GUI alive if the sender fails
             with self._lock:
@@ -322,9 +357,23 @@ class StreamVizApp:
                 self._metrics_ts = now
             metrics = dict(self._metrics_cache)
             metrics["rendered_frames"] = snap["frames"]
+            kind = str(self.params.get("source", "synthetic")).lower()
+            source_info: Dict[str, Any] = {
+                "kind": kind,
+                "label": (
+                    "MIT-BIH ECG (real, ODC-By 1.0)"
+                    if kind == "mitdb" else "Synthetic (for smoke tests)"
+                ),
+                "dataset": DATASET if kind == "mitdb" else None,
+                "provenance": (
+                    self._real_record.provenance
+                    if kind == "mitdb" and self._real_record is not None else None
+                ),
+            }
             return {
                 "status": self.status,
                 "config": {**self.params, "udp_port": self.udp_port},
+                "source": source_info,
                 "view_version": snap["version"],
                 "frames": snap["frames"],
                 "views": snap["views"],

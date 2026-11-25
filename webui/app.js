@@ -111,6 +111,7 @@
   let lastVersion = -1;
   let seeking = false;
   let toastTimer = null;
+  let sourceSynced = false;
 
   function toast(message) {
     const el = $('toast');
@@ -124,7 +125,21 @@
     const status = s.status || 'offline';
     $('statusPill').className = 'pill ' + (status === 'running' ? 'running' : status === 'stopped' ? 'stopped' : '');
     $('statusText').textContent = status;
-    $('endpoint').textContent = `udp ${s.config.udp_port} · ${s.config.refresh_hz} Hz · ${s.config.frame_capacity} frames`;
+    if (!sourceSynced && s.config) {
+      // Mirror the server's active parameters once, so a session started from
+      // the CLI (or by the screenshot tool) cannot disagree with the form.
+      $('source').value = s.config.source || 'synthetic';
+      $('rate').value = s.config.rate_mbps ?? 4;
+      $('capacity').value = s.config.frame_capacity ?? 64;
+      $('refresh').value = s.config.refresh_hz ?? 30;
+      $('malformed').value = s.config.malformed_ratio ?? 0.01;
+      sourceSynced = true;
+    }
+    const src = s.source || {};
+    const isReal = src.kind === 'mitdb';
+    $('sourceBadge').textContent = isReal ? 'REAL · MIT-BIH ECG' : 'SYNTHETIC';
+    $('sourceBadge').className = 'badge' + (isReal ? ' real' : '');
+    $('endpoint').textContent = `${isReal ? 'PhysioNet record 100' : 'local generator'} · udp ${s.config.udp_port} · ${s.config.refresh_hz} Hz · ${s.config.frame_capacity} frames`;
 
     const c = s.metrics.counters || {};
     $('mThroughput').textContent = Number(s.metrics.throughput_mbps || 0).toFixed(2);
@@ -192,6 +207,7 @@
   $('startBtn').addEventListener('click', async () => {
     const r = await post('/api/control', {
       action: 'start',
+      source: $('source').value,
       rate_mbps: Number($('rate').value),
       frame_capacity: Number($('capacity').value),
       refresh_hz: Number($('refresh').value),

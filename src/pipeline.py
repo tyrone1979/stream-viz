@@ -8,7 +8,9 @@
     S6  paced real-time playback of the most recent audio
     S7  timestamp-seek replay of historical audio
 
-Everything is synthetic-data friendly and headless by default.
+The data source is pluggable: a synthetic generator for smoke tests, or a
+verified open recording replayed by ``src/open_dataset.py``.  Both use the
+same wire protocol and the same metering path.
 """
 
 from __future__ import annotations

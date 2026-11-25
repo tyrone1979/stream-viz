@@ -2,6 +2,10 @@
 # source documents and extracted drafts; keep it out of any public repository.
 .workbuddy/
 
+# Downloaded third-party dataset (ODC-By 1.0).  Not redistributed here: run
+# tools/fetch_dataset.py to obtain the byte-identical, checksum-verified files.
+data/
+
 # Generated artefacts
 output/
 *.wav

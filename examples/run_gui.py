@@ -1,11 +1,13 @@
 """One-command interactive GUI.
 
-    python examples/run_gui.py                 # opens the dashboard in a browser
-    python examples/run_gui.py --no-browser   # serve only (for remote/CI use)
+    python examples/run_gui.py                       # synthetic smoke test
+    python examples/run_gui.py --source mitdb        # real MIT-BIH ECG record
+    python examples/run_gui.py --no-browser          # serve only (remote/CI)
 
-The dashboard starts a synthetic stream immediately unless ``--idle`` is
-given.  Stopping it with Ctrl-C shuts down the pipeline and writes
-``output/gui/gui_report.json``.
+The dashboard starts a stream immediately unless ``--idle`` is given.  The
+``mitdb`` source requires ``python tools/fetch_dataset.py`` once; it is
+checksum-verified before the pipeline starts.  Stopping with Ctrl-C shuts down
+the pipeline and writes ``output/gui/gui_report.json``.
 """
 
 from __future__ import annotations
@@ -31,6 +33,8 @@ def main() -> int:
     parser.add_argument("--capacity", type=int, default=64, help="display FIFO capacity")
     parser.add_argument("--refresh", type=float, default=30.0, help="display timer Hz")
     parser.add_argument("--malformed", type=float, default=0.01)
+    parser.add_argument("--source", choices=("synthetic", "mitdb"), default="synthetic",
+                        help="synthetic smoke data, or the verified real MIT-BIH ECG")
     parser.add_argument("--duration", type=float, default=3600.0,
                         help="sender duration in seconds (default: until Stop)")
     parser.add_argument("--output", default="output/gui")
@@ -40,6 +44,7 @@ def main() -> int:
 
     app = StreamVizApp(udp_port=args.udp_port, output_dir=Path(args.output))
     app.params.update({
+        "source": args.source,
         "rate_mbps": args.rate,
         "frame_capacity": args.capacity,
         "refresh_hz": args.refresh,

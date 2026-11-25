@@ -17,7 +17,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 TERMS_FILE = Path(__file__).with_name("sensitive_terms.txt")
 LOCAL_TERMS_FILE = ROOT / ".workbuddy" / "sensitive_terms.local.txt"
-SKIP_DIRS = {".git", ".workbuddy", "output", "__pycache__", ".pytest_cache", "venv", ".venv"}
+SKIP_DIRS = {
+    ".git", ".workbuddy", "output", "data", "__pycache__",
+    ".pytest_cache", "venv", ".venv",
+}
 SKIP_FILES = {TERMS_FILE.name, LOCAL_TERMS_FILE.name}
 TEXT_SUFFIXES = {
     ".py", ".md", ".txt", ".json", ".yml", ".yaml", ".toml", ".cfg", ".ini",

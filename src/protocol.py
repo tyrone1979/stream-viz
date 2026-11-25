@@ -130,6 +130,21 @@ def decode(raw: bytes, received_ms: Optional[int] = None) -> Tuple[Optional[Pack
     return packet, "ok"
 
 
+def rewrite_header(raw: bytearray, seq: int, timestamp_ms: int) -> None:
+    """Refresh sequence and wall-clock timestamp on a pre-encoded packet.
+
+    Replaying a recorded stream would otherwise rebuild every NumPy payload
+    and struct header inside the pacing loop, which dominates the achievable
+    sender rate.  Rewriting two header fields in place keeps the pacing loop
+    to a single ``sendto`` call.
+    """
+    magic, version, type_id, channel, _, _, payload_len = _HEADER.unpack_from(raw)
+    _HEADER.pack_into(
+        raw, 0, magic, version, type_id, channel,
+        int(seq) & 0xFFFFFFFF, int(timestamp_ms), payload_len,
+    )
+
+
 def packet_size(ptype: PacketType, n_items: int) -> int:
     """Wire size in bytes, useful for pacing a synthetic sender."""
     return _HEADER.size + n_items * _ITEM_BYTES[PacketType(ptype)]

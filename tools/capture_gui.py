@@ -54,6 +54,8 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=8766)
     parser.add_argument("--udp-port", type=int, default=19001)
     parser.add_argument("--rate", type=float, default=4.0)
+    parser.add_argument("--source", choices=("synthetic", "mitdb"), default="synthetic",
+                        help="capture the synthetic smoke test or the real MIT-BIH ECG")
     parser.add_argument("--wait", type=float, default=1.5,
                         help="seconds of traffic to accumulate before capture")
     parser.add_argument("--width", type=int, default=1440)
@@ -67,8 +69,16 @@ def main() -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
 
     app = StreamVizApp(udp_port=args.udp_port, output_dir=_ROOT / "output" / "gui_capture")
-    app.params.update({"rate_mbps": args.rate, "duration_s": max(12.0, args.wait + 10)})
-    app.start()
+    app.params.update({
+        "source": args.source,
+        "rate_mbps": args.rate,
+        "duration_s": max(12.0, args.wait + 10),
+        "malformed_ratio": 0.0 if args.source == "mitdb" else 0.01,
+    })
+    started = app.start()
+    if not started.get("ok"):
+        print(started["message"])
+        return 1
     server = StreamVizServer(("127.0.0.1", args.port), app)
     thread = threading.Thread(
         target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True

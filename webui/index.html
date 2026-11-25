@@ -26,6 +26,12 @@
       <section class="card">
         <h2>Stream control <small>S1–S3</small></h2>
         <div class="fields">
+          <label class="wide">Data source
+            <select id="source">
+              <option value="synthetic">Synthetic (smoke test)</option>
+              <option value="mitdb">MIT-BIH ECG — real open data</option>
+            </select>
+          </label>
           <label>Target rate <em>Mbit/s</em>
             <input id="rate" type="number" min="0.1" max="20" step="0.5" value="4">
           </label>
@@ -44,7 +50,7 @@
           <button id="stopBtn">Stop</button>
         </div>
         <button id="figureBtn" class="ghost full">Export current view (PNG)</button>
-        <p class="hint">All traffic is generated locally. No external data source or hardware is required.</p>
+        <p class="hint">Synthetic traffic is generated locally. The MIT-BIH option streams a verified PhysioNet ECG record (ODC-By 1.0); download it once with <code>tools/fetch_dataset.py</code>.</p>
       </section>
 
       <section class="card">
@@ -89,7 +95,10 @@
           <h2>Live views <small>timer-driven consumer</small></h2>
           <p id="frameInfo">Waiting for the first batch…</p>
         </div>
-        <span class="badge" id="versionBadge">version 0</span>
+        <div class="headbadges">
+          <span class="badge" id="sourceBadge">synthetic</span>
+          <span class="badge" id="versionBadge">version 0</span>
+        </div>
       </div>
 
       <div class="views">
