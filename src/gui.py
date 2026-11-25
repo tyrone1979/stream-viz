@@ -263,10 +263,16 @@ class StreamVizApp:
 
     def _run_sender(self, spec, record=None) -> None:
         try:
+            # The receiver binds its UDP socket inside its thread; a short
+            # delay avoids losing the first datagrams of every session.
             if isinstance(spec, ReplaySpec):
-                stats = send_record(spec, stop_event=self._sender_stop, record=record)
+                stats = send_record(
+                    spec, stop_event=self._sender_stop, record=record, start_delay=0.05
+                )
             else:
-                stats = send_stream(spec, stop_event=self._sender_stop)
+                stats = send_stream(
+                    spec, stop_event=self._sender_stop, start_delay=0.05
+                )
             self._log(f"sender finished: {stats['sent_packets']} datagrams")
         except Exception as exc:  # keep the GUI alive if the sender fails
             with self._lock:
