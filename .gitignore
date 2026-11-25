@@ -1,0 +1,17 @@
+# Local working material - never publish. This directory may contain raw
+# source documents and extracted drafts; keep it out of any public repository.
+.workbuddy/
+
+# Generated artefacts
+output/
+*.wav
+*.png
+*.json
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/

@@ -1,0 +1,18 @@
+# Public, domain-neutral terms. One per line; lines starting with # are comments.
+# These are generic application-domain identifiers that may safely live in an
+# openly distributed repository.
+#
+# Organisation names, personnel names and location identifiers are deliberately
+# NOT stored here. They live in the local-only list at
+# .workbuddy/sensitive_terms.local.txt, which is excluded from version control.
+# The checker merges both lists, so the local scan is still complete while a
+# public clone never contains those identifiers.
+声呐
+水声
+听音
+波束
+LOFAR
+lofar
+显控台
+潜艇
+舰艇
