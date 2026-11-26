@@ -1,0 +1,9 @@
+# Shell scripts must keep LF on every platform, including a Windows checkout
+# with core.autocrlf=true; a CRLF shebang line fails with "bad interpreter".
+*.sh text eol=lf
+
+# Python, Markdown and JSON are read by tools that tolerate either, but keeping
+# them LF avoids whole-file diffs when a contributor's editor disagrees.
+*.py text eol=lf
+*.md text eol=lf
+*.json text eol=lf
