@@ -58,6 +58,15 @@ Three questions the harness is built to answer:
 | How does a slower renderer change the answer? | `--consumer-delays` | staleness vs render budget, packets per frame |
 | Does a domain change the answer? | `--dataset` | the same cells for ECG and gravitational-wave strain |
 
+**The shipped default is `drop_oldest`** — in `BoundedFIFO` itself and in
+`PipelineConfig`, so the GUI, the demo and the delivery benchmark all run it.
+At the default capacity (64) and 30 Hz refresh the buffer does not fill at the
+rates this reference sender reaches (≤8 Mbit/s), so the policy does not engage
+in normal use; the ablation therefore over-subscribes on purpose (capacity 8,
+20–80 ms render budget). Switching the policy is a constructor argument
+(`PipelineConfig(overflow_policy="drop_newest")`) or a flag on the ablation
+harness; it is not exposed in the GUI.
+
 ## Quick start
 
 ```bash
@@ -315,8 +324,10 @@ claim in a manuscript comes from the offline harness, not from a screenshot.
   ECG, or real gravitational-wave strain. The active dataset's label, domain,
   licence and provenance appear in the badge and API state.
 - **Start / stop** the stream and set target rate, display FIFO capacity,
-  overflow policy, refresh frequency and the fraction of deliberately malformed
-  datagrams.
+  refresh frequency and the fraction of deliberately malformed datagrams.
+  The overflow policy is **not** exposed in the GUI: it is a constructor
+  argument (`PipelineConfig(overflow_policy=...)`) used by the ablation
+  harness, and the GUI always runs the default `drop_oldest`.
 - **Four live views**, redrawn on every state change from a shared
   `ViewState` — the same object the headless consumer and the PNG renderer use.
   All renderers share one adaptive colour scale, because ECG energy and
