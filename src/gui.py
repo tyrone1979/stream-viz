@@ -108,13 +108,15 @@ class GuiConsumer:
         self._thread.join(timeout)
 
     def _run(self) -> None:
-        period = max(1.0 / self.refresh_hz, self.consumer_delay_ms / 1000.0)
+        budget = max(1.0 / self.refresh_hz, self.consumer_delay_ms / 1000.0)
         try:
             while not self.stop_event.is_set():
+                started = time.perf_counter()
                 packets = self.frame_buffer.drain()
                 if packets:
                     self.state.ingest(packets, self.latency, self.counters, self.staleness)
-                self.stop_event.wait(period)
+                spent = time.perf_counter() - started
+                self.stop_event.wait(max(0.0, budget - spent))
         finally:
             # Same conservation rule as the headless consumer: residual packets
             # were never displayed, so they are counted as shutdown drops

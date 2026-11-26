@@ -102,6 +102,45 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(stats["occupancy"], 2)
 
 
+class DeliveryAccountingTests(unittest.TestCase):
+    """The conservation chain counts accepted work, not rendered pixels."""
+
+    def test_waveform_packets_count_as_delivered(self):
+        import numpy as np
+
+        from src.metrics import Counters
+        from src.protocol import PacketType, decode, encode
+        from src.viewstate import ViewState
+
+        state = ViewState()
+        counters = Counters()
+        packets = [
+            decode(encode(PacketType.SPECTRUM, 0, 1, 10, np.ones(128, np.float32)), 0.0)[0],
+            decode(encode(PacketType.WAVEFORM, 0, 2, 11, np.ones(256, np.float32)), 0.0)[0],
+        ]
+        state.ingest(packets, None, counters, None)
+        # Waveforms never reach a view, but they were accepted by the consumer:
+        # counting only spectra would silently break sent -> displayed.
+        self.assertEqual(counters.snapshot()["display_frames"], 2)
+        self.assertEqual(state.frames, 1)
+
+    def test_staleness_is_one_sample_per_batch(self):
+        import numpy as np
+
+        from src.metrics import LatencyMeter
+        from src.protocol import PacketType, decode, encode
+        from src.viewstate import ViewState
+
+        state = ViewState()
+        staleness = LatencyMeter()
+        packets = [
+            decode(encode(PacketType.SPECTRUM, 0, 1, i + 1, np.ones(128, np.float32)), 0.0)[0]
+            for i in range(5)
+        ]
+        state.ingest(packets, None, None, staleness)
+        self.assertEqual(staleness.snapshot()["count"], 1)
+
+
 class PipelineReportTests(unittest.TestCase):
     def test_report_exposes_policy_conservation_and_staleness(self):
         with tempfile.TemporaryDirectory() as tmp:

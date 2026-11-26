@@ -119,12 +119,12 @@ class StreamPipeline:
                 stop_event=self.stop_event,
                 refresh_hz=cfg.refresh_hz,
                 consumer_delay_ms=cfg.consumer_delay_ms,
+                history=cfg.history,
+                n_bins=cfg.n_bins,
+                n_channels=cfg.n_channels,
             )
             if cfg.enable_display:
                 consumer_kwargs.update(
-                    history=cfg.history,
-                    n_bins=cfg.n_bins,
-                    n_channels=cfg.n_channels,
                     output_dir=cfg.output_dir / "figures",
                     snapshot_every=cfg.snapshot_every,
                 )

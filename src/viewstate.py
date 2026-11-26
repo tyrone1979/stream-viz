@@ -78,22 +78,24 @@ class ViewState:
         """Fold one drained batch of packets into the rolling views.
 
         ``latency`` records every packet's own age, while ``staleness`` records
-        one sample per batch: the age of the *newest* packet that was actually
-        rendered.  The two answer different questions -- "how old is the
-        average sample" versus "how far behind live is this frame" -- and only
-        the second one exposes what drop-oldest buys.
+        one sample per batch: the age of the *newest* packet the frame shows.
+        The two answer different questions -- "how old is the average sample"
+        versus "how far behind live is this frame" -- and only the second one
+        exposes what drop-oldest buys.
+
+        Both are stamped when the fold finishes, not when it starts.  A frame is
+        only visible once its state has been folded, and the fold cost grows
+        with the batch size, so an arrival-time stamp would credit a large
+        backlog with latency it does not actually deliver.
         """
         packets = list(packets)
         with self._lock:
-            display_ms = now_ms()
-            had_packets = False
-            if packets and staleness is not None:
-                newest_ms = max(int(p.timestamp_ms) for p in packets)
-                staleness.add(display_ms - newest_ms)
             for pkt in packets:
-                had_packets = True
-                if latency is not None:
-                    latency.add(display_ms - pkt.timestamp_ms)
+                # Every packet the consumer accepted counts as delivered, not
+                # only the ones that end up in a view: the conservation chain
+                # is closed on accepted work, not on rendered pixels.
+                if counters is not None:
+                    counters.inc("display_frames")
                 values = np.asarray(pkt.values, dtype=np.float32)
                 if pkt.type is PacketType.WAVEFORM:
                     if len(values) == len(self.last_waveform):
@@ -113,9 +115,14 @@ class ViewState:
                 self.energy[:, -1] = previous * 0.85
                 self.energy[channel, -1] += float(np.mean(np.abs(spec)))
                 self.last_spectrum = spec.copy()
-                if counters is not None:
-                    counters.inc("display_frames")
-            if had_packets:
+            if packets:
+                visible_ms = now_ms()
+                if staleness is not None:
+                    newest_ms = max(int(p.timestamp_ms) for p in packets)
+                    staleness.add(visible_ms - newest_ms)
+                if latency is not None:
+                    for pkt in packets:
+                        latency.add(visible_ms - pkt.timestamp_ms)
                 self.frames += 1
                 self.version += 1
 

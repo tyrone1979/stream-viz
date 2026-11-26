@@ -54,6 +54,70 @@ def _ratio(num: int, den: int) -> float:
     return round(num / den, 4) if den else 0.0
 
 
+def _median(values: list[float]) -> float:
+    ordered = sorted(values)
+    if not ordered:
+        return 0.0
+    mid = len(ordered) // 2
+    if len(ordered) % 2:
+        return round(float(ordered[mid]), 3)
+    return round((ordered[mid - 1] + ordered[mid]) / 2.0, 3)
+
+
+# Metrics whose run-to-run spread matters: a single unlucky scheduling hiccup
+# can move a p95 by an order of magnitude, so the summary carries both the
+# median and the observed range.
+_SPREAD_FIELDS = (
+    ("latency", "e2e_p95_ms"),
+    ("latency", "staleness_p95_ms"),
+    ("discard", "frame_dropped"),
+    ("discard", "dropped_age_ms_p95"),
+)
+
+
+def _aggregate(runs: list[dict]) -> dict:
+    """Median-of-N summary for one (dataset, policy, rate) cell."""
+    first = runs[0]
+    cell = {
+        "dataset": first["dataset"],
+        "policy": first["policy"],
+        "target_rate_mbps": first["target_rate_mbps"],
+        "consumer_delay_ms": first["consumer_delay_ms"],
+        "repeats": len(runs),
+        "conservation_closed_all": all(
+            r["conservation"]["conservation_closed"] for r in runs
+        ),
+        "sender_errors": sum(1 for r in runs if r["sender_error"]),
+    }
+    for section, metric in _SPREAD_FIELDS:
+        values = [float(r[section][metric]) for r in runs]
+        cell[f"{section}.{metric}"] = {
+            "median": _median(values), "min": round(min(values), 3),
+            "max": round(max(values), 3),
+        }
+    for section, keys in (
+        ("conservation", ("sent", "udp_received", "parsed", "delivered_to_consumer",
+                          "sequence_gaps", "duplicate_or_reorder")),
+        ("discard", ("source_dropped", "frame_occupancy",
+                     "frame_block_timeout", "frame_hard_cap")),
+        ("latency", ("e2e_p50_ms", "staleness_p50_ms", "ingest_p95_ms")),
+    ):
+        for key in keys:
+            cell[f"{section}.{key}"] = _median([float(r[section][key]) for r in runs])
+    ratios = [r["conservation"]["udp_delivery_ratio"] for r in runs]
+    cell["conservation.udp_delivery_ratio"] = {
+        "median": _median(ratios), "min": min(ratios), "max": max(ratios),
+    }
+    cell["frame.packets_per_frame"] = _median(
+        [float(r["frame"]["packets_per_frame"]) for r in runs]
+    )
+    cell["frame.mean_interval_ms"] = _median(
+        [float(r["frame"]["mean_interval_ms"]) for r in runs]
+    )
+    cell["throughput_mbps"] = _median([float(r["throughput_mbps"]) for r in runs])
+    return cell
+
+
 def _one_run(
     dataset: str,
     policy: str,
@@ -129,6 +193,8 @@ def _one_run(
         + frame["occupancy"]
     )
     conservation_closed = (frame_in == frame_out)
+    rounds = report["rendered_frames"]
+    duration_s = report["duration_s"]
 
     return {
         "dataset": dataset,
@@ -177,7 +243,20 @@ def _one_run(
             "staleness_max_ms": stale["max_ms"],
         },
         "throughput_mbps": report["throughput_mbps"],
-        "rendered_frames": report["rendered_frames"],
+        "rendered_frames": rounds,
+        # A policy that keeps every packet does not get that for free: the
+        # work per frame grows with the backlog it accumulated.  For a real
+        # renderer this is the cost that eventually dominates.
+        "frame": {
+            "duration_s": duration_s,
+            "rounds": rounds,
+            "packets_per_frame": round(
+                flow["delivered_to_consumer"] / rounds, 2
+            ) if rounds else 0.0,
+            "mean_interval_ms": round(
+                duration_s * 1000.0 / rounds, 2
+            ) if rounds else 0.0,
+        },
     }
 
 
@@ -195,11 +274,18 @@ def main() -> int:
     parser.add_argument("--consumer-delay-ms", type=float, default=20.0,
                         help="injected per-tick render cost; this is what makes "
                              "the buffer overflow the way a real front-end does")
+    parser.add_argument("--consumer-delays", default="",
+                        help="comma-separated render budgets to sweep, e.g. "
+                             "20,40,80; overrides --consumer-delay-ms")
     parser.add_argument("--duration", type=float, default=30.0,
                         help="safety cap; with --packets the run ends on packet count")
     parser.add_argument("--packets", type=int, default=3000,
                         help="fixed datagram count per run so every policy sees "
                              "the same injected load (0 = pace by duration)")
+    parser.add_argument("--repeat", type=int, default=3,
+                        help="runs per cell; the summary reports the median and "
+                             "the observed range, because a single run is a "
+                             "scheduling sample, not a measurement")
     parser.add_argument("--recv-buf", type=int, default=0,
                         help="SO_RCVBUF in bytes; small values shift loss upstream")
     parser.add_argument("--port", type=int, default=19300)
@@ -208,11 +294,15 @@ def main() -> int:
 
     policies = [OverflowPolicy(p.strip()) for p in args.policies.split(",") if p.strip()]
     rates = [float(r) for r in args.rates.split(",") if r.strip()]
+    delays = [float(d) for d in args.consumer_delays.split(",") if d.strip()] \
+        if args.consumer_delays else [args.consumer_delay_ms]
     keys = sorted(REGISTRY) if args.dataset == "all" else [args.dataset]
+    repeats = max(1, args.repeat)
     root = Path(args.output)
     root.mkdir(parents=True, exist_ok=True)
 
-    all_runs = []
+    all_runs: list[dict] = []
+    summary: list[dict] = []
     port = args.port
     for key in keys:
         rec = load_dataset(key)
@@ -220,34 +310,61 @@ def main() -> int:
         print(f"\n{'=' * 88}")
         print("Dataset :", spec.name, "| record", rec.record, "| domain", spec.domain)
         print("License :", spec.license, "| DOI", spec.doi)
-        print(f"Overload: consumer {args.consumer_delay_ms:g} ms/tick x "
-              f"capacity {args.capacity} = "
-              f"{1000.0 / max(1e-3, args.consumer_delay_ms) * args.capacity:.0f} "
-              f"packets/s consumer budget")
+        print(f"Sweep   : render budget {delays} ms/tick x capacity "
+              f"{args.capacity} | repeats {repeats}")
         for policy in policies:
             for rate in rates:
-                out = root / key / policy.value / f"run_{rate:g}mbps"
-                out.mkdir(parents=True, exist_ok=True)
-                run = _one_run(key, policy.value, rate, args.capacity, args.refresh_hz,
-                               args.consumer_delay_ms, args.duration, args.packets,
-                               args.recv_buf, port, out)
-                port += 1
-                all_runs.append(run)
-                if run["sender_error"]:
-                    print(f"  {policy.value:<12} {rate:>4g} Mbit/s | SENDER ERROR: "
-                          f"{run['sender_error']}")
-                    continue
-                c, d, lat = run["conservation"], run["discard"], run["latency"]
-                print(
-                    f"  {policy.value:<12} {rate:>4g} Mbit/s | "
-                    f"udp {c['udp_delivery_ratio']:.3f} "
-                    f"({c['udp_received']:>5d}/{c['sent']:<5d}) | "
-                    f"drop src {d['source_dropped']:>5d} frm {d['frame_dropped']:>5d} | "
-                    f"dropped-age p95 {d['dropped_age_ms_p95']:>7.1f} ms | "
-                    f"e2e p95 {lat['e2e_p95_ms']:>7.1f} | "
-                    f"stale p95 {lat['staleness_p95_ms']:>7.1f} ms | "
-                    f"chain {'ok' if c['conservation_closed'] else 'BROKEN'}"
-                )
+                for delay in delays:
+                    cell_runs = []
+                    for rep in range(repeats):
+                        out = (root / key / policy.value
+                               / f"run_{rate:g}mbps_d{delay:g}ms" / f"rep{rep + 1}")
+                        out.mkdir(parents=True, exist_ok=True)
+                        run = _one_run(key, policy.value, rate, args.capacity,
+                                       args.refresh_hz, delay,
+                                       args.duration, args.packets, args.recv_buf,
+                                       port, out)
+                        port += 1
+                        run["repeat_index"] = rep + 1
+                        all_runs.append(run)
+                        cell_runs.append(run)
+                        if run["sender_error"]:
+                            print(f"  {policy.value:<12} {rate:>4g}Mbit/s "
+                                  f"d{delay:g}ms rep{rep + 1} | SENDER ERROR: "
+                                  f"{run['sender_error']}")
+                            continue
+                        if repeats > 1:
+                            lat = run["latency"]
+                            print(f"  {policy.value:<12} {rate:>4g}Mbit/s "
+                                  f"d{delay:>4g}ms rep{rep + 1} | stale p95 "
+                                  f"{lat['staleness_p95_ms']:>7.1f} ms | frm drop "
+                                  f"{run['discard']['frame_dropped']:>5d}")
+                    cell = _aggregate(cell_runs)
+                    summary.append(cell)
+                    if repeats == 1:
+                        c, d, lat = cell_runs[0]["conservation"], cell_runs[0]["discard"], cell_runs[0]["latency"]
+                        print(
+                            f"  {policy.value:<12} {rate:>4g}Mbit/s d{delay:>4g}ms | "
+                            f"udp {c['udp_delivery_ratio']:.3f} "
+                            f"({c['udp_received']:>5d}/{c['sent']:<5d}) | "
+                            f"drop src {d['source_dropped']:>5d} frm {d['frame_dropped']:>5d} | "
+                            f"dropped-age p95 {d['dropped_age_ms_p95']:>7.1f} ms | "
+                            f"e2e p95 {lat['e2e_p95_ms']:>7.1f} | "
+                            f"stale p95 {lat['staleness_p95_ms']:>7.1f} ms | "
+                            f"chain {'ok' if c['conservation_closed'] else 'BROKEN'}"
+                        )
+                    else:
+                        stale = cell["latency.staleness_p95_ms"]
+                        dropped = cell["discard.frame_dropped"]
+                        print(
+                            f"  {policy.value:<12} {rate:>4g}Mbit/s d{delay:>4g}ms | "
+                            f"median of {repeats} | stale p95 {stale['median']:>7.1f} ms "
+                            f"[{stale['min']:.1f}-{stale['max']:.1f}] | "
+                            f"pkt/frame {cell['frame.packets_per_frame']:>5.1f} | "
+                            f"frm drop {dropped['median']:>5.0f} "
+                            f"[{dropped['min']:.0f}-{dropped['max']:.0f}] | "
+                            f"chain {'ok' if cell['conservation_closed_all'] else 'BROKEN'}"
+                        )
 
     payload = {
         "workload": {
@@ -258,11 +375,23 @@ def main() -> int:
             ),
             "seconds_per_run": args.duration,
             "packets_per_run": args.packets,
+            "repeats_per_cell": repeats,
+            "aggregation": (
+                "summary[] holds the median of the repeats; each cell also carries "
+                "the observed min/max so the host-dependent spread stays visible"
+            ),
             "frame_capacity": args.capacity,
             "display_refresh_hz": args.refresh_hz,
             "consumer_delay_ms": args.consumer_delay_ms,
-            "consumer_budget_packets_per_s": round(
-                1000.0 / max(1e-3, args.consumer_delay_ms) * args.capacity, 1
+            "consumer_delays_ms": delays,
+            "consumer_budget_packets_per_s": {
+                f"{d:g}ms": round(1000.0 / max(1e-3, d) * args.capacity, 1)
+                for d in delays
+            },
+            "per_packet_fold_cost": (
+                "measured, not injected: the consumer folds every accepted "
+                "packet into a real ViewState (~0.2 ms/packet on the reference "
+                "machine), so draining a large backlog costs real time"
             ),
             "audio_archiving": (
                 "disabled: WAV writing puts file I/O on the parse thread and "
@@ -276,6 +405,7 @@ def main() -> int:
             ),
         },
         "datasets": {k: REGISTRY[k].public for k in keys},
+        "summary": summary,
         "runs": all_runs,
     }
     path = root / "policy_ablation.json"

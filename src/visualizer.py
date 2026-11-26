@@ -15,6 +15,7 @@ matching the figure limit of a typical software-article template.
 from __future__ import annotations
 
 import threading
+import time
 from pathlib import Path
 from typing import List, Optional
 
@@ -27,7 +28,14 @@ from .viewstate import _SPECTRUM_SCALE, ViewState, energy_scale, trace_ceiling
 
 
 class DrainThread(threading.Thread):
-    """Renderer-free consumer for tests and benchmarks (no plotting deps)."""
+    """Renderer-free consumer for tests and benchmarks (no plotting deps).
+
+    It still folds every consumed packet into a real :class:`ViewState`.  That
+    fold is not free — roughly 0.2 ms per packet on the reference machine — and
+    a consumer whose per-tick work grows with the backlog is precisely what
+    distinguishes an unbounded buffer from a bounded one.  Skipping the fold
+    would make an unbounded buffer look free.
+    """
 
     def __init__(
         self,
@@ -39,6 +47,9 @@ class DrainThread(threading.Thread):
         refresh_hz: float = 30.0,
         staleness: Optional[LatencyMeter] = None,
         consumer_delay_ms: float = 0.0,
+        history: int = 120,
+        n_bins: int = 128,
+        n_channels: int = 4,
         daemon: bool = True,
     ) -> None:
         super().__init__(name="drain", daemon=daemon)
@@ -50,19 +61,14 @@ class DrainThread(threading.Thread):
         self.consumer_delay_ms = max(0.0, consumer_delay_ms)
         self.stop_event = stop_event
         self.refresh_hz = max(1.0, refresh_hz)
+        self.state = ViewState(history=history, n_bins=n_bins, n_channels=n_channels)
         self.frames_rendered = 0
         self.snapshots: List[Path] = []
 
     def _consume(self, packets) -> bool:
         if not packets:
             return False
-        stamp = now_ms()
-        if self.staleness is not None:
-            newest = max(int(p.timestamp_ms) for p in packets)
-            self.staleness.add(stamp - newest)
-        for pkt in packets:
-            self.latency.add(stamp - pkt.timestamp_ms)
-        self.counters.inc("display_frames", len(packets))
+        self.state.ingest(packets, self.latency, self.counters, self.staleness)
         self.frames_rendered += 1
         return True
 
@@ -70,12 +76,15 @@ class DrainThread(threading.Thread):
         # Fixed-rate ticks, not a free-running loop.  When the buffer is
         # over-subscribed the ready signal is set continuously; a consumer that
         # re-checks immediately would spin and starve the parser of the GIL,
-        # which inflates latency instead of measuring it.
-        period = max(1.0 / self.refresh_hz, self.consumer_delay_ms / 1000.0)
+        # which inflates latency instead of measuring it.  A tick lasts at
+        # least as long as the work it actually did.
+        budget = max(1.0 / self.refresh_hz, self.consumer_delay_ms / 1000.0)
         try:
             while not self.stop_event.is_set():
+                started = time.perf_counter()
                 self._consume(self.frame_buffer.drain())
-                self.stop_event.wait(period)
+                spent = time.perf_counter() - started
+                self.stop_event.wait(max(0.0, budget - spent))
         finally:
             # Packets still buffered at shutdown were never displayed.  Count
             # them as a shutdown drop: that closes the conservation chain
@@ -146,14 +155,16 @@ class DisplayThread(threading.Thread):
         # then rendered once on shutdown.  Disk/image encoding in the hot loop
         # would stall the consumer and overflow the display FIFO.
         tick = 0
-        period = max(1.0 / self.refresh_hz, self.consumer_delay_ms / 1000.0)
+        budget = max(1.0 / self.refresh_hz, self.consumer_delay_ms / 1000.0)
         try:
             while not self.stop_event.is_set():
+                started = time.perf_counter()
                 self._consume_tick()
                 tick += 1
                 if self.snapshot_every and tick % self.snapshot_every == 0:
                     self._capture()
-                self.stop_event.wait(period)
+                spent = time.perf_counter() - started
+                self.stop_event.wait(max(0.0, budget - spent))
         finally:
             # Same rule as the drain consumer: residual packets were never
             # rendered, so they are counted as shutdown drops rather than

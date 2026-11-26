@@ -1,25 +1,41 @@
 # StreamViz
 
-A domain-neutral research prototype for **low-latency visualisation and
-replay of continuous streaming numeric data**. It implements a multi-threaded
-ingest → clean → buffer → display → replay pipeline with an interactive
-browser GUI. Data arrives through pluggable adapters: a synthetic generator
-for smoke tests and **two real, openly licensed recordings from unrelated
-scientific domains** (biomedical ECG and gravitational-wave strain) for
-measurements that can be cited and independently reproduced.
+**An instrumented, domain-agnostic testbed for measuring latency–freshness
+trade-offs in bounded-buffer stream visualisation.**
 
-> The repository ships **no third-party signal files** and contains only
-> generic transport fields. It carries no affiliation, no personnel
-> information, no application-specific protocol, and no restricted or
-> proprietary material. See [Desensitisation](#desensitisation) below.
+Every real-time display of a continuous data stream eventually has to answer one
+architectural question: *when the producer outruns the renderer and the buffer
+fills, which end do you throw away?* StreamViz treats that question as an
+experimental variable instead of a fixed implementation detail. It provides
 
-## What it does
+1. a **switchable admission policy** on the display buffer
+   (`drop_oldest` / `drop_newest` / `block` / `unbounded`),
+2. a **per-stage conservation chain** — `sent → received → parsed → displayed`,
+   with every discard attributed to a stage and a reason, and
+3. **frame-visibility staleness** — the age, at the moment a frame becomes
+   visible, of the newest sample that frame contains,
+
+so the trade-off can be measured rather than asserted, on any domain that can be
+expressed as one loader function.
+
+> **What this software is not.** It is not a new visualisation algorithm, not a
+> faster plotter, and not a live acquisition system. The four views and the
+> browser GUI are illustrative examples: they are the object under test, not the
+> contribution. Timing numbers here are measurements of an **offline replay
+> workload** on **one host over loopback**, never a performance guarantee.
+
+The repository ships **no third-party signal files** and contains only generic
+transport fields. It carries no affiliation, no personnel information, no
+application-specific protocol, and no restricted or proprietary material. See
+[Desensitisation](#desensitisation).
+
+## What the software lets you measure
 
 ```
-UDP sender --> [S1] receiver thread --> raw source FIFO
+UDP sender --> [S1] receiver thread --> raw source FIFO   (sent -> received)
                         |
                         v
-             [S2] parser thread: validate / clean / classify
+             [S2] parser thread: validate / clean / classify  (-> parsed)
                         |                    |
               spectrum / waveform      audio samples
                         v                    v
@@ -28,12 +44,19 @@ UDP sender --> [S1] receiver thread --> raw source FIFO
               cache-full signal      flush -> WAV segments
                         v                    v
              [S3] timer-driven view   [S4] live playback
-                                      [S5] timestamp-seek replay
+             (admission policy here)  [S5] timestamp-seek replay
+                        |
+                        v
+              frame visible  (-> displayed, staleness stamped here)
 ```
 
-Four rolling views are produced: a spectrogram, a per-channel energy heatmap,
-a waveform, and a spectrum. End-to-end latency is metered from source
-timestamp to render, with p50/p95/p99 reported.
+Three questions the harness is built to answer:
+
+| Question | Variable you set | What you read out |
+| --- | --- | --- |
+| Which end of a full buffer should be discarded? | `--policies` | staleness p95, discarded-item age, packets lost |
+| How does a slower renderer change the answer? | `--consumer-delays` | staleness vs render budget, packets per frame |
+| Does a domain change the answer? | `--dataset` | the same cells for ECG and gravitational-wave strain |
 
 ## Quick start
 
@@ -46,14 +69,19 @@ python -m unittest discover -s tests -v
 # one-off download of BOTH open datasets (verified by SHA-256)
 python tools/fetch_dataset.py
 
+# THE EXPERIMENT: overflow-policy ablation, both domains, median of 3
+python examples/run_policy_ablation.py --dataset all \
+    --policies drop_oldest,drop_newest,block,unbounded \
+    --rates 8 --consumer-delays 20,40,80 --repeat 3 \
+    --packets 3000 --capacity 8 --output output/policy_ablation
+
 # interactive dashboard at http://127.0.0.1:8765/
 python examples/run_gui.py                        # synthetic smoke test
 python examples/run_gui.py --source mitdb        # real ECG
 python examples/run_gui.py --source gwosc        # real LIGO strain
 
-# CROSS-DOMAIN measurement, both datasets -> output/cross_domain/
+# delivery/latency sweep, both datasets -> output/cross_domain/
 python examples/run_real_benchmark.py --dataset all
-python examples/run_real_benchmark.py --dataset gwosc   # one domain only
 
 # end-to-end synthetic demo (writes output/demo_report.json + PNGs)
 python examples/run_demo.py --duration 4 --rate 4
@@ -75,16 +103,167 @@ python tools/desensitize_check.py
 `numpy` and `matplotlib` are the only third-party dependencies. The GUI and
 the HTTP API use the Python standard library exclusively.
 
+## The experiment: overflow-policy ablation
+
+### Design
+
+The display buffer is deliberately over-subscribed so that it *must* discard:
+the sender pushes 3000 datagrams at 8 Mbit/s (≈1500 of them bound for the
+display) while the consumer is limited to one frame per render budget. Every
+policy then faces the same injected load and a full buffer; only its admission
+decision differs.
+
+| Knob | Value | Why |
+| --- | --- | --- |
+| `--policies` | `drop_oldest`, `drop_newest`, `block`, `unbounded` | the four defensible reactions to a full buffer |
+| `--packets` | 3000 per run | fixed load, so cells are comparable; duration-based pacing made runs differ by 2.5× |
+| `--consumer-delays` | 20, 40, 80 ms | the render budget is the design variable: how expensive is one frame? |
+| `--capacity` | 8 | small on purpose, so the buffer binds |
+| `--repeat` | 3 | a single run is a scheduling sample, not a measurement |
+| `--recv-buf` | OS default | loss is not the variable being studied here |
+| audio archiving | off | WAV writing puts file I/O on the parse thread and stalls parsing by hundreds of ms (see [Lessons](#two-engineering-lessons-worth-inheriting)) |
+
+Two implementation details matter for the validity of the numbers:
+
+- **The consumer folds every accepted packet into a real `ViewState`.** That
+  fold costs ≈0.2 ms per packet on the reference machine (measured, not
+  injected). A benchmark that skips it would make an unbounded buffer look
+  free, because the whole cost of an unbounded buffer is the work per frame.
+- **Every packet is accounted for.** `frame_buffer_in` is compared with
+  `delivered + discarded + still_occupied + discarded_at_shutdown` on every run;
+  a cell whose chain does not close is reported as `BROKEN` rather than quoted.
+
+### Results
+
+One cell = one policy at one render budget, on one domain, median of 3 runs.
+Load is identical in every cell: 3000 datagrams at 8.00 Mbit/s, 1500 of them
+bound for the display, `udp_delivery_ratio` 1.000 and zero sequence gaps in all
+36 runs (a loopback property of these runs, not a protocol guarantee). Every
+cell closed its conservation chain.
+
+**Frame-visibility staleness, p95 in ms** (median of 3; full ranges in
+`output/policy_ablation/policy_ablation.json`):
+
+| Policy | Render budget | ECG | GW strain | Discarded (ECG / GW) | Packets per frame |
+| --- | --- | --- | --- | --- | --- |
+| `drop_oldest` | 20 ms | **21.0** | **19.0** | 772 / 762 | 8.0 |
+| `drop_oldest` | 40 ms | **20.0** | **19.0** | 1008 / 1004 | 8.0 |
+| `drop_oldest` | 80 ms | **20.0** | **19.5** | 1252 / 1252 | 8.0 |
+| `drop_newest` | 20 ms | 35.0 | 35.0 | 770 / 758 | 8.0 |
+| `drop_newest` | 40 ms | 51.0 | 50.0 | 1012 / 1004 | 8.0 |
+| `drop_newest` | 80 ms | 97.0 | 94.5 | 1252 / 1252 | 8.0 |
+| `block` | 20 ms | 1374.8 | 1371.6 | 748 / 740 | 8.0 |
+| `block` | 40 ms | 1791.0 | 1787.0 | 996 / 996 | 8.0 |
+| `block` | 80 ms | 2217.0 | 2213.0 | 1236 / 1236 | 8.0 |
+| `unbounded` | 20 ms | 20.0 | 20.5 | 0 / 0 | 16.3 / 16.5 |
+| `unbounded` | 40 ms | 21.0 | 23.0 | 0 / 0 | 24.6 / 24.6 |
+| `unbounded` | 80 ms | 27.0 | 98.8 † | 0 / 0 | 48.4 / 42.9 |
+
+† the only cell with a wide spread: 54.5–129.7 ms across the three runs — see
+finding 4.
+
+### What the numbers say
+
+1. **The two drop policies lose the same amount and show very different data.**
+   At an 80 ms budget both discard 1252 of the 1500 display-bound packets (83%),
+   yet `drop_oldest` shows a frame whose newest sample is 20 ms old and
+   `drop_newest` shows one that is 97 ms old — a 4.9× difference in freshness
+   for identical loss. At 20 ms the counts are 772 vs 770 and the freshness gap
+   is still 1.7×. Choosing the wrong end of the buffer buys nothing.
+2. **`drop_oldest` is the only policy whose staleness is invariant to the render
+   budget.** 21 → 20 → 20 ms (ECG) and 19 → 19 → 19.5 ms (strain) across a 4×
+   change in per-frame cost, while `drop_newest` tracks the budget almost exactly
+   (35 → 51 → 97 ms; 35 → 50 → 94.5 ms). So *which policy* to use does not depend
+   on how fast the renderer is; *how much data you throw away* does (772 → 1252).
+3. **Blocking converts loss into latency and still loses the data.** `block`
+   discards almost exactly as many packets as `drop_oldest` (1236 vs 1252 at
+   80 ms) while staleness reaches 2.2 s — 110× worse. The packets it eventually
+   discards are themselves 2.2 s old: back-pressure does not preserve the data,
+   it postpones the discard until the data is worthless. This is the result that
+   contradicts the intuition that "not dropping" is safer.
+4. **`unbounded` is not free; it pays in work per frame.** Zero discards and
+   staleness close to `drop_oldest` at a 20 ms budget, but the consumer folds
+   16 → 25 → 48 packets per frame as the budget grows, and the memory it holds
+   grows with the deficit. At an 80 ms budget on strain the three runs spread
+   over 54.5–129.7 ms: the backlog → per-frame work → slower tick loop is
+   starting to bite. The fold cost used here is linear and measured (≈0.2 ms per
+   packet); a Canvas or Matplotlib repaint saturates faster, so this column is
+   penalised *less* here than in a production front-end.
+5. **Both domains agree on the shape, not on the constant.** Every ranking, the
+   flatness of `drop_oldest`, and the near-equality of discard counts replicate
+   across electrophysiology and gravitational-wave strain. Absolute values agree
+   within 2 ms except where the load-dependent loop dominates (the cell marked
+   †). That is the sense in which the harness is domain-neutral: the *conclusion*
+   transfers, and a third domain can be added with one loader to test it again.
+
+The practical reading: if the newest sample is what matters (live monitoring),
+drop the oldest and accept that you will discard most of the stream under
+overload; if sequence continuity is what matters (archival, offline analysis),
+drop the newest and accept staleness that scales with your render budget; do not
+block on the display path.
+
+## Two engineering lessons worth inheriting
+
+Both were found by measurement, and both are the kind of thing that is invisible
+in an architecture diagram.
+
+1. **A free-running consumer starves the thread it is measuring.** With a
+   capacity-8 buffer under overload the ready signal is set continuously, so a
+   consumer that re-checks immediately never blocks: it spins through the GIL and
+   delays the parser enough that the measured latency is dominated by the
+   measurement loop. The consumer now ticks at `max(1/refresh, render_budget)`
+   and never faster than the work it just did (`spent` is subtracted from the
+   period).
+2. **File I/O on the parse thread is a latency bug, not an optimisation
+   detail.** Writing WAV segments from the parser stalls it for hundreds of
+   milliseconds on a host with real-time virus scanning; the display buffer then
+   overflows in bursts. Disabling audio archiving moved the baseline staleness
+   from ~1800 ms to ~26 ms on the same workload. Archiving is therefore an
+   explicit `archive_audio` flag, off in every measurement that studies the
+   display path.
+
+Timestamps are also a measurement decision: staleness and packet age are
+stamped when the state fold *finishes*, because a frame is only visible once it
+has been folded, and the fold cost grows with the batch size. Stamping on
+arrival credits a large backlog with latency it does not deliver.
+
+## Measurement definitions
+
+The chain is reported per stage so that a loss cannot hide behind an average:
+
+```
+sent                 datagrams the sender's sendto() accepted
+ └ udp_received      datagrams the socket delivered (sequence gaps expose the rest)
+    └ parsed         datagrams that decoded cleanly (parse_yield = parsed/received)
+       └ displayed   packets the consumer folded into a frame
+          ├ discarded (by stage: source FIFO / display FIFO / at shutdown)
+          └ still buffered
+```
+
+- **`staleness`** — age of the newest packet contained in a frame, at the moment
+  the frame becomes visible. This is the metric that distinguishes the policies;
+  mean packet age cannot, because a frame that redraws a long backlog has a fresh
+  newest sample and a very old average one.
+- **`dropped_age`** — age of the items that were discarded. An age near
+  end-to-end latency means stale data was thrown away; an age near zero means
+  fresh data was.
+- **`packets_per_frame`** — how much work each frame actually costs. A policy
+  that discards nothing pays here instead of in `discarded`.
+- **`udp_delivery_ratio`** — `received / sent`, and therefore includes kernel
+  and transport loss. It is **not** a lossless guarantee: UDP has none. Every
+  reported 1.000 means "no loss was detected on this loopback run at this rate",
+  which is a property of the run, not of the protocol.
+
 ## Cross-domain data adapters
 
-The pipeline never knows which scientific domain produced the samples. It
-only sees three generic payload types (`SPECTRUM`, `WAVEFORM`, `AUDIO`).
-`src/datasets.py` holds a registry; each entry declares upstream URLs,
-SHA-256 checksums, license, DOI, citation, acknowledgement, physical units
-and preprocessing, plus one loader function that returns a `RealRecord`
-(a `(samples, channels)` float32 array plus provenance). **Adding a third
-domain requires one loader and one registry entry** — no change to the
-transport, buffers, views, GUI, benchmark or tests. The GUI dropdown, CLI
+The pipeline never knows which scientific domain produced the samples. It only
+sees three generic payload types (`SPECTRUM`, `WAVEFORM`, `AUDIO`).
+`src/datasets.py` holds a registry; each entry declares upstream URLs, SHA-256
+checksums, license, DOI, citation, acknowledgement, physical units and
+preprocessing, plus one loader function that returns a `RealRecord` (a
+`(samples, channels)` float32 array plus provenance). **Adding a third domain
+requires one loader and one registry entry** — no change to the transport,
+buffers, views, GUI, benchmark or tests. The GUI dropdown, CLI
 `--source`/`--dataset`, download tool and figure captions all read the
 registry, so they stay in sync automatically.
 
@@ -125,29 +304,29 @@ pipeline's real capacity. Payloads are pre-encoded from the recording; only
 the sequence number and wall-clock timestamp are rewritten in the pacing
 loop.
 
-## Interactive GUI
+## Interactive GUI (illustrative example)
 
-Software-article reviewers need to *run* the tool, not just read about it, and
-an illustrative example needs a real interface rather than a schematic.
+The GUI exists so a reviewer can *run* the pipeline rather than read about it,
+and so a new adapter can be inspected immediately. It is a front-end on the
+real ingest/parser/buffer threads — never a mock-up — but every quantitative
+claim in a manuscript comes from the offline harness, not from a screenshot.
 
 - **Choose the data source** from a registry-driven dropdown: synthetic, real
   ECG, or real gravitational-wave strain. The active dataset's label, domain,
   licence and provenance appear in the badge and API state.
 - **Start / stop** the stream and set target rate, display FIFO capacity,
-  refresh frequency and the fraction of deliberately malformed datagrams.
+  overflow policy, refresh frequency and the fraction of deliberately malformed
+  datagrams.
 - **Four live views**, redrawn on every state change from a shared
-  `ViewState` — the same object the headless PNG renderer uses. Both
-  renderers now also share one adaptive colour scale, because ECG energy and
+  `ViewState` — the same object the headless consumer and the PNG renderer use.
+  All renderers share one adaptive colour scale, because ECG energy and
   band-passed strain differ by an order of magnitude.
-- **Live metrics**: wire throughput, received/parsed datagrams, FIFO overflow,
-  archived WAV segments, rendered frames, ingest p95 and end-to-end p50/p95.
+- **Live metrics**: wire throughput, received/parsed datagrams, per-stage
+  discards, staleness, archived WAV segments, rendered frames, ingest p95 and
+  end-to-end p50/p95.
 - **Audio replay**: play the newest archived segment (S6) or drag the source
   timestamp slider and play from that point (S7).
 - **Export the current view** as a four-panel PNG, and an **event log**.
-
-`GuiConsumer` is injected into `StreamPipeline` through `display_factory=`,
-so the GUI is a front-end on the real ingest/parser/buffer threads. The
-browser only reads snapshots; it never drives pipeline timing.
 
 | Endpoint | Method | Purpose |
 | --- | --- | --- |
@@ -159,51 +338,75 @@ browser only reads snapshots; it never drives pipeline timing.
 
 The server binds to `127.0.0.1` only. Metrics are cached for 250 ms, view
 snapshots by version, and `/api/state` responses for 50 ms, so a fast-polling
-browser cannot steal CPU from the display consumer. `tools/capture_gui.py`
-starts the same server plus a stream and screenshots it with a locally
-installed headless Chrome/Edge. **GUI screenshots illustrate the interface;
-quantitative claims come from the offline benchmark JSON** — starting a
-headless browser on the same host can inflate the p95 shown in a screenshot.
+browser cannot steal CPU from the display consumer — an earlier version of this
+code measured a p95 inflation from ~60 ms to 1566–3017 ms purely from browser
+polling. `tools/capture_gui.py` starts the same server plus a stream and
+screenshots it with a locally installed headless Chrome/Edge.
+
+## Related work and positioning
+
+Real-time signal display is a crowded space; the question a reviewer will ask is
+*why not use one of these*. The honest answer is that they solve a different
+problem, and the difference is not speed.
+
+| Family | Examples | What they give you | Why it does not answer this question |
+| --- | --- | --- | --- |
+| Desktop stream plotters | PlotJuggler, glScopeClient | interactive inspection of live numeric streams, plugin data sources | the buffer's admission behaviour is internal and fixed; there is no per-stage discard accounting or staleness meter to compare policies with |
+| Dashboard stacks | Grafana over a time-series database | operational dashboards, alerting, retention | latency is dominated by the scrape/aggregation interval, and the display buffer is not a first-class object |
+| SDR / DSP flowgraphs | GNU Radio Companion, inspectrum | spectrum and waterfall views tightly coupled to a radio flowgraph | domain-bound by construction; the visualisation is part of the DSP toolchain, not an independent measurement instrument |
+| Dashboard libraries | Bokeh, Dash, Streamlit | rendering and layout primitives | provide the drawing layer only; the pipeline, its buffering and its metering are left to the user |
+| Robotics visualisers | ROS RViz | QoS-aware visualisation of robot topics | domain-bound, and QoS is a transport property rather than a display-admission policy |
+| Stream-processing benchmarks | Flink / Storm latency harnesses | throughput and end-to-end latency under load | measure the processing path, not the freshness of what a human actually sees |
+
+The gap StreamViz targets is narrow and specific: **a harness in which the
+buffer admission policy is the independent variable, the discards are attributed
+per stage, and staleness is defined at frame visibility** — while staying
+domain-agnostic through a one-function adapter. We do not claim that no tool
+does part of this; we claim that the combination is what makes the
+drop-oldest/drop-newest/block/unbounded comparison reproducible by someone else
+on their own data. If a closer tool exists, the adapter interface makes an
+honest head-to-head comparison cheap to run.
 
 ## Package layout
 
 | Path | Purpose |
 | --- | --- |
 | `src/protocol.py` | generic binary packet format + validation/cleaning rules |
-| `src/buffers.py` | bounded FIFO, datagram wrapper, cache-full signal |
-| `src/receiver.py` | UDP ingestion thread |
+| `src/buffers.py` | bounded FIFO with selectable overflow policy and discard-age metering |
+| `src/receiver.py` | UDP ingestion thread, optional `SO_RCVBUF` |
 | `src/parser.py` | decode, sequence-gap accounting, routing, shutdown drain |
 | `src/player.py` | WAV archiving, paced live playback, timestamp seek |
 | `src/synthetic.py` | synthetic spectrum/waveform/audio generator |
 | `src/datasets.py` | **pluggable dataset registry + two domain adapters** |
 | `src/open_dataset.py` | generic real-data UDP replay + compatibility re-exports |
-| `src/viewstate.py` | shared four-view state, colour scales, JSON encoding |
-| `src/visualizer.py` | timer-driven four-view PNG renderer + renderer-free consumer |
+| `src/viewstate.py` | shared four-view state, colour scales, staleness, JSON encoding |
+| `src/visualizer.py` | timer-driven PNG renderer + renderer-free state-folding consumer |
 | `src/gui.py` | GUI consumer, session control, localhost HTTP API |
-| `src/pipeline.py` | lifecycle, configuration, metrics report |
+| `src/pipeline.py` | lifecycle, configuration, conservation report |
 | `webui/` | dashboard HTML, CSS and Canvas front-end |
-| `examples/` | GUI launcher, demo, synthetic sweep, cross-domain benchmark |
-| `tests/` | protocol / buffer / end-to-end / GUI / dataset-registry tests |
+| `examples/` | ablation harness, GUI launcher, demo, synthetic sweep, benchmark |
+| `tests/` | protocol / buffer / policy / end-to-end / GUI / dataset-registry tests |
 | `tools/` | dataset download+verify, term scan, reproducible GUI capture |
 
 ## Outputs
 
-- `output/demo_report.json` — synthetic demo counters and latency percentiles
-- `output/figures/view_*.png` — up to six headless demo snapshots
-- `output/figures/gui_dashboard*.png` — GUI captures (synthetic / ECG / strain)
-- `output/gui/gui_view.png`, `output/gui/gui_report.json` — GUI export + session metrics
-- `output/benchmark/benchmark.json` — synthetic sweep results
-- `output/cross_domain/cross_domain_summary.json` — **two-domain comparison index**
+- `output/policy_ablation/policy_ablation.json` — **the ablation**: per-run
+  rows, median-of-N `summary` cells with observed ranges, workload description
+- `output/cross_domain/cross_domain_summary.json` — two-domain delivery and
+  latency index
 - `output/cross_domain/<key>/real_benchmark.json` — per-dataset measurements,
   provenance, SHA-256 and payload-authenticity checks
 - `output/cross_domain/<key>/run_4mbps/figures/view_*.png` — four-view figures
   computed from that domain's recorded samples
+- `output/demo_report.json` — synthetic demo counters and latency percentiles
+- `output/figures/gui_dashboard*.png` — GUI captures (synthetic / ECG / strain)
+- `output/benchmark/benchmark.json` — synthetic throughput/buffer sweep
 
-## Real open-data measurements (cross-domain)
+## Reference measurements (delivery path)
 
-`python examples/run_real_benchmark.py --dataset all --rates 1,2,4,8`, 6 s
-per run, display FIFO 64, no malformed injection. Parsed = received in every
-run; FIFO overflow is zero throughout.
+`python examples/run_real_benchmark.py --dataset all --rates 1,2,4,8`, 6 s per
+run, display FIFO 64, no malformed injection, renderer-free consumer, no
+policies engaged (the buffer does not fill at these rates with capacity 64).
 
 | Target (Mbit/s) | ECG measured | ECG E2E p50/p95 (ms) | Strain measured | Strain E2E p50/p95 (ms) |
 | --- | --- | --- | --- | --- |
@@ -212,21 +415,19 @@ run; FIFO overflow is zero throughout.
 | 4 | 3.70 | 49 / 131 | 4.00 | 34 / 63 |
 | 8 | 7.45 | 34 / 60 | 8.00 | 34 / 61 |
 
-The two domains produce **the same packet shapes, the same delivery
-behaviour and the same latency regime**, which is the point of the adapter
-layer. The ECG run at 4 and 8 Mbit/s fell slightly short of target during
-this particular eight-run sweep on a busy host; a single isolated 8 Mbit/s
-run reaches 8.00 Mbit/s with 6522/6522 datagrams for both datasets. Treat
-these as one reference run on one machine, not a performance guarantee, and
-always report the host load alongside the numbers.
+The two domains produce the same packet shapes, the same delivery behaviour and
+the same latency regime, which is what the adapter layer is for. The ECG run at
+4 and 8 Mbit/s fell slightly short of target during this eight-run sweep on a
+busy host; an isolated 8 Mbit/s run reaches 8.00 Mbit/s with 6522/6522
+datagrams for both datasets. These are one reference run on one machine, not a
+performance guarantee — always report host load alongside the numbers.
 
-These are measurements of an **offline replay workload**, replayed faster
-than real time to reach a target bit rate — not live acquisition hardware.
-The verified record is looped to sustain each rate;
-`distinct_signal_seconds` in the report states how much of the recording was
-actually consumed.
+These are measurements of an **offline replay workload**, replayed faster than
+real time to reach a target bit rate — not live acquisition hardware. The
+verified record is looped to sustain each rate; `distinct_signal_seconds` in the
+report states how much of the recording was actually consumed.
 
-## Measured behaviour (synthetic smoke test)
+## Synthetic smoke test
 
 Reference run, 3 s at a 4 Mbit/s target
 (`python examples/run_demo.py --duration 3 --rate 4`):
@@ -242,11 +443,8 @@ Reference run, 3 s at a 4 Mbit/s target
 
 The sweep in `examples/benchmark.py` covers 1/2/4/8 Mbit/s against display
 buffer capacities of 16 and 64. Delivery ratio stays at 0.96–0.99 (2% of
-datagrams are intentionally malformed) and the smaller buffer generally
-gives lower p95 at higher rates (e.g. 42 ms vs 63 ms at 8 Mbit/s),
-illustrating the batching/latency trade-off. Headless figures are rendered
-once at shutdown from buffered view states so image encoding never stalls
-the consumer.
+datagrams are intentionally malformed) and the smaller buffer generally gives
+lower p95 at higher rates (e.g. 42 ms vs 63 ms at 8 Mbit/s).
 
 ## Desensitisation
 
@@ -260,8 +458,8 @@ tagging a release.
 
 Directories excluded from the scan are `.git`, `.workbuddy`, `output`, `data`,
 `__pycache__` and virtual environments — **do not commit raw working material
-or downloaded third-party signal files**, and never publish anything
-extracted from them. `data/` is git-ignored: both datasets are downloaded and
+or downloaded third-party signal files**, and never publish anything extracted
+from them. `data/` is git-ignored: both datasets are downloaded and
 checksum-verified on demand rather than redistributed here.
 
 The wire protocol deliberately exposes only `magic / version / type /
@@ -271,36 +469,40 @@ domain-specific units are present.
 
 ## Known limitations
 
-- UDP is used on loopback; at high packet rates the operating system may drop
-  datagrams. The benchmark reports delivery ratio and sequence gaps rather
-  than hiding losses.
-- Timing figures are host-clock measurements on one machine, not a
-  distributed-system evaluation; a concurrently running browser materially
-  affects p95.
-- The GUI needs a local browser. Headless machines can still run every test,
-  the demo, the benchmark, the HTTP API and the Agg PNG renderer; only the
-  browser screenshot step requires Chrome/Edge.
-- Audio playback uses a null sink in the library API; the GUI streams WAV to
-  the browser's own audio element instead.
-- Real-data workloads are offline replays of public recordings. The audio
+- **The render cost model is linear in the batch size.** The consumer folds
+  every accepted packet into a `ViewState`, which costs ≈0.2 ms per packet on
+  the reference machine. A real Canvas/Matplotlib repaint grows faster than
+  linear once the drawn area is saturated, so the `unbounded` column is
+  penalised *less* here than it would be in a production front-end, not more.
+- **One host, one clock, loopback.** p95 depends on host load; a concurrently
+  running browser materially inflates it. Cells are median-of-3 with the
+  observed range reported, but this is not a distributed-system evaluation.
+- **8 Mbit/s is a ceiling for one Python sender process.** Higher rates need
+  multiple senders or a compiled one.
+- **`block` is bistable.** At a 4 ms/Mbit deficit it either stays near the
+  render budget or jumps to ~1 s within the same cell; the median hides the
+  bimodality, so the range must be quoted with it.
+- **UDP provides no delivery guarantee.** The harness reports loss per stage;
+  a 1.000 delivery ratio is a property of a loopback run, not of the protocol.
+- **Real-data workloads are offline replays** of public recordings. The audio
   channel is audification of those samples, not a microphone recording.
-  Display normalisation is applied; physical units remain available.
-- A single Python sender process tops out near 8 Mbit/s on the reference
-  machine. Higher rates need multiple sender processes or a compiled sender.
-- SoftwareX's Impact section still needs an independent external reuse case;
-  two internal benchmark domains demonstrate generality, not adoption.
+- **No independent external reuse yet.** Two internal benchmark domains
+  demonstrate generality, not adoption; a software-article Impact statement
+  needs the latter.
+- The GUI needs a local browser. Headless machines can still run every test,
+  the demo, the ablation, the HTTP API and the Agg PNG renderer.
 
 ## Before any public release
 
-1. Replace the copyright holder in `LICENSE` with the actual rights holder
-   and obtain the institution's written approval for releasing the code.
+1. Replace the copyright holder in `LICENSE` with the actual rights holder and
+   obtain the institution's written approval for releasing the code.
 2. Complete the institution's review procedure for external publication.
 3. Add a persistent repository URL, a released version tag, and a
    reproducibility capsule. Include `tools/fetch_dataset.py` in the capsule
    instructions and keep **both** DOI/citation statements and the GWOSC
    acknowledgement in every figure caption derived from real-data figures.
-4. Add at least one independent reuse case; a software-article reviewer will
-   weigh demonstrated impact more heavily than the implementation itself.
+4. Add at least one independent reuse case — an adapter written and run by
+   someone outside the group is the cheapest credible form.
 
 ## License
 
