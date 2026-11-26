@@ -38,6 +38,14 @@
           <label>Display FIFO <em>frames</em>
             <input id="capacity" type="number" min="1" max="1024" step="1" value="64">
           </label>
+          <label class="wide">Full-buffer policy
+            <select id="policy">
+              <option value="drop_oldest">drop_oldest — keep newest</option>
+              <option value="drop_newest">drop_newest — keep sequence</option>
+              <option value="block">block — back-pressure</option>
+              <option value="unbounded">unbounded — keep all</option>
+            </select>
+          </label>
           <label>Refresh <em>Hz</em>
             <input id="refresh" type="number" min="1" max="60" step="1" value="30">
           </label>
@@ -66,6 +74,7 @@
         <div class="latency">
           <div><span>Ingest p95</span><b id="mIngest">—</b></div>
           <div><span>End-to-end p50 / p95</span><b id="mLatency">— / —</b></div>
+          <div><span>Frame staleness p95</span><b id="mStale">—</b></div>
         </div>
       </section>
 
@@ -97,6 +106,7 @@
         </div>
         <div class="headbadges">
           <span class="badge" id="sourceBadge">synthetic</span>
+          <span class="badge" id="policyBadge">drop_oldest</span>
           <span class="badge" id="versionBadge">version 0</span>
         </div>
       </div>

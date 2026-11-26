@@ -26,6 +26,7 @@ from urllib.parse import parse_qs, urlparse
 
 import numpy as np
 
+from .buffers import OverflowPolicy
 from .datasets import REGISTRY, available_datasets, get_spec, load_dataset
 from .metrics import Counters, LatencyMeter
 from .open_dataset import ReplaySpec, send_record
@@ -189,6 +190,9 @@ class StreamVizApp:
             "rate_mbps": 4.0,
             "frame_capacity": 64,
             "refresh_hz": 30.0,
+            # The admission policy is the software's experimental variable, so
+            # it has to be switchable from the UI, not only from the harness.
+            "overflow_policy": OverflowPolicy.DROP_OLDEST.value,
             "malformed_ratio": 0.01,
             "duration_s": 3600.0,
         }
@@ -226,6 +230,17 @@ class StreamVizApp:
                     ),
                 }
 
+            policy = str(merged.get("overflow_policy",
+                                    OverflowPolicy.DROP_OLDEST.value)).lower()
+            allowed = [p.value for p in OverflowPolicy]
+            if policy not in allowed:
+                return {
+                    "ok": False,
+                    "message": f"unknown overflow policy: {policy}; "
+                               f"available: {', '.join(allowed)}",
+                }
+            merged["overflow_policy"] = policy
+
             # Load and verify the open dataset BEFORE creating the pipeline,
             # so a missing/corrupt download produces a clean error instead of
             # an apparently healthy but silent session.  The pipeline itself
@@ -251,6 +266,7 @@ class StreamVizApp:
                 port=self.udp_port,
                 frame_capacity=max(1, int(merged["frame_capacity"])),
                 refresh_hz=max(1.0, float(merged["refresh_hz"])),
+                overflow_policy=policy,
                 output_dir=self.output_dir,
                 enable_display=False,
                 n_channels=n_channels,
@@ -284,8 +300,8 @@ class StreamVizApp:
             self.status = "running"
             self._log(
                 f"stream started: {source} data, {merged['rate_mbps']} Mbit/s, "
-                f"display FIFO {merged['frame_capacity']}, "
-                f"refresh {merged['refresh_hz']} Hz"
+                f"display FIFO {merged['frame_capacity']} "
+                f"({policy}), refresh {merged['refresh_hz']} Hz"
             )
             return {"ok": True, "message": f"stream started ({source})"}
 
@@ -391,6 +407,10 @@ class StreamVizApp:
                     "counters": report.get("counters", {}),
                     "ingest_latency_ms": report.get("ingest_latency_ms", {}),
                     "end_to_end_latency_ms": report.get("end_to_end_latency_ms", {}),
+                    # Staleness is the metric the policy switch is meant to
+                    # move, so it has to be visible next to the switch.
+                    "staleness_ms": report.get("staleness_ms", {}),
+                    "overflow_policy": report.get("overflow_policy", ""),
                     "fifo_overflow_dropped": report.get("fifo_overflow_dropped", 0),
                 }
                 self._metrics_ts = now

@@ -84,6 +84,11 @@ python examples/run_policy_ablation.py --dataset all \
     --rates 8 --consumer-delays 20,40,80 --repeat 3 \
     --packets 3000 --capacity 8 --output output/policy_ablation
 
+# extreme-condition scenario: bursty multi-sensor array with link outages
+python examples/run_extreme_scenario.py \
+    --policies drop_oldest,drop_newest,block,unbounded \
+    --capacity 16 --duration 12 --output output/scenario
+
 # interactive dashboard at http://127.0.0.1:8765/
 python examples/run_gui.py                        # synthetic smoke test
 python examples/run_gui.py --source mitdb        # real ECG
@@ -324,17 +329,17 @@ claim in a manuscript comes from the offline harness, not from a screenshot.
   ECG, or real gravitational-wave strain. The active dataset's label, domain,
   licence and provenance appear in the badge and API state.
 - **Start / stop** the stream and set target rate, display FIFO capacity,
-  refresh frequency and the fraction of deliberately malformed datagrams.
-  The overflow policy is **not** exposed in the GUI: it is a constructor
-  argument (`PipelineConfig(overflow_policy=...)`) used by the ablation
-  harness, and the GUI always runs the default `drop_oldest`.
+  **full-buffer policy**, refresh frequency and the fraction of deliberately
+  malformed datagrams. Switching the policy while the stream runs is the
+  point: the same load, the same buffer size, a different answer to "what does
+  the operator see".
 - **Four live views**, redrawn on every state change from a shared
   `ViewState` — the same object the headless consumer and the PNG renderer use.
   All renderers share one adaptive colour scale, because ECG energy and
   band-passed strain differ by an order of magnitude.
 - **Live metrics**: wire throughput, received/parsed datagrams, per-stage
-  discards, staleness, archived WAV segments, rendered frames, ingest p95 and
-  end-to-end p50/p95.
+  discards, **frame staleness p95**, archived WAV segments, rendered frames,
+  ingest p95 and end-to-end p50/p95.
 - **Audio replay**: play the newest archived segment (S6) or drag the source
   timestamp slider and play from that point (S7).
 - **Export the current view** as a four-panel PNG, and an **event log**.
@@ -353,6 +358,103 @@ browser cannot steal CPU from the display consumer — an earlier version of thi
 code measured a p95 inflation from ~60 ms to 1566–3017 ms purely from browser
 polling. `tools/capture_gui.py` starts the same server plus a stream and
 screenshots it with a locally installed headless Chrome/Edge.
+
+The policy switch is visible in a pair of reproducible captures — same load
+(real ECG, 8 Mbit/s), same buffer (8 frames), only the policy differs:
+
+```bash
+python tools/capture_gui.py --source mitdb --rate 8 --capacity 8 \
+    --policy drop_oldest --wait 6 --output output/figures/gui_policy_drop_oldest.png
+python tools/capture_gui.py --source mitdb --rate 8 --capacity 8 \
+    --policy block --wait 6 --output output/figures/gui_policy_block.png
+```
+
+| Capture | Policy | Frame staleness p95 | FIFO drops | Parsed |
+| --- | --- | --- | --- | --- |
+| `gui_policy_drop_oldest.png` | `drop_oldest` | 143.8 ms | 2111 | 7616 |
+| `gui_policy_block.png` | `block` | 5748.9 ms | 0 | 3201 |
+
+**Read these as an illustration, not as a measurement**: a headless browser and
+a screenshot share the host with the consumer, and both sessions ran for
+different lengths. The quantitative version of this comparison is [the
+ablation](#the-experiment-overflow-policy-ablation) above. The point of the pair
+is that a reviewer can reproduce it in two commands and see a 40× difference in
+the staleness readout with the policy as the only input that changed.
+
+## Application scenarios
+
+Two scenarios show what the harness is for. Both are documented with the
+command that produces them and the JSON that results; neither is offered as
+evidence of adoption.
+
+### Case 1 — a third party reproduces the ablation on their own data
+
+This is the reuse path the design is optimised for, and the one a reviewer can
+verify without a collaboration:
+
+1. write one loader returning a `RealRecord` and one `REGISTRY` entry
+   (no change to transport, buffers, consumer, GUI or harness),
+2. run `examples/run_policy_ablation.py --dataset <key> --repeat 3`,
+3. read the `summary` cells: staleness p50/p95, discarded-item age, packets per
+   frame, and the per-stage conservation chain.
+
+Because the harness asserts the chain `sent → received → parsed → displayed`
+for every cell, a third party cannot accidentally publish a number whose
+packets went somewhere unaccounted. That is the reusable artefact: not our two
+datasets, but the measurement contract around them. What it demonstrates is
+*capability* — two unrelated domains, 36 cells, every chain closed — not
+external adoption.
+
+### Case 2 — a multi-sensor acoustic deployment under burst and outage
+
+A field deployment of a multi-sensor acoustic array is the opposite of a steady
+benchmark load: long quiet stretches, short broadband bursts when a transient
+crosses the array, and outages when a sensor or a link drops. That is exactly
+where the admission policy decides what an operator sees, and where an audible
+channel matters as much as the four views.
+
+The recordings that would make a faithful replay possible are
+**access-restricted and cannot be redistributed**, so this repository ships no
+field data for this scenario. Instead `src/scenarios.py` generates a *load
+profile* and a *signal shape* that exercise the same regimes — narrowband lines
+per sensor, impulsive transients, a noise floor, a burst gain and recurrent
+outages — from a seeded generator. The report writes
+`workload.data_status: "synthetic"` and the provenance string into the JSON, so
+a number produced this way cannot be mistaken for a field measurement. It is
+not a model of any particular sensor, array geometry or propagation
+environment, and it must not be cited as measured data.
+
+```bash
+python examples/run_extreme_scenario.py \
+    --policies drop_oldest,drop_newest,block,unbounded \
+    --capacity 16 --duration 12 --rate 3 \
+    --sensors 6 --cycle 3 --burst 0.9 --outage 0.4 --burst-gain 3 \
+    --output output/scenario
+```
+
+Load: 6 sensors, 3 Mbit/s base, ×3 burst for 0.9 s and a 0.4 s outage every
+3 s; display buffer 16 frames at 20 Hz. Single run per policy — illustrative,
+not a median:
+
+| Policy | Staleness p50 / p95 / max (ms) | Frame drops | Packets per frame |
+| --- | --- | --- | --- |
+| `drop_oldest` | 18.0 / 21.0 / 53.0 | 4695 | 15.9 |
+| `drop_newest` | 42.0 / 67.2 / 84.0 | 4698 | 15.9 |
+| `block` | 4054.0 / 7487.2 / 7712.0 | 4267 | 16.0 |
+| `unbounded` | 20.0 / 28.3 / 54.0 | 0 | 41.4 |
+
+All four closed their conservation chain (`sent = 8120±10`, `received =
+parsed`, `sequence_gaps = 0`). The burst amplifies the steady-load result:
+`block` reaches 7.5 s — longer than the burst itself — while discarding
+almost as much as `drop_oldest`; `unbounded` keeps everything and pays with 41
+packets folded per frame instead of 16.
+
+The audio path is the same one the GUI exposes: audification of the sensor
+content into 16 kHz WAV segments, live playback of the newest segment, and
+timestamp-seek replay into the history. Pass `--audio` to archive segments
+during the run; note that this puts file I/O on the parse thread, which is why
+it is off in every timing run (see [Two engineering
+lessons](#two-engineering-lessons-worth-inheriting)).
 
 ## Related work and positioning
 
@@ -388,6 +490,7 @@ honest head-to-head comparison cheap to run.
 | `src/parser.py` | decode, sequence-gap accounting, routing, shutdown drain |
 | `src/player.py` | WAV archiving, paced live playback, timestamp seek |
 | `src/synthetic.py` | synthetic spectrum/waveform/audio generator |
+| `src/scenarios.py` | **burst/outage multi-sensor acoustic load profile (synthetic)** |
 | `src/datasets.py` | **pluggable dataset registry + two domain adapters** |
 | `src/open_dataset.py` | generic real-data UDP replay + compatibility re-exports |
 | `src/viewstate.py` | shared four-view state, colour scales, staleness, JSON encoding |
@@ -395,14 +498,18 @@ honest head-to-head comparison cheap to run.
 | `src/gui.py` | GUI consumer, session control, localhost HTTP API |
 | `src/pipeline.py` | lifecycle, configuration, conservation report |
 | `webui/` | dashboard HTML, CSS and Canvas front-end |
-| `examples/` | ablation harness, GUI launcher, demo, synthetic sweep, benchmark |
-| `tests/` | protocol / buffer / policy / end-to-end / GUI / dataset-registry tests |
+| `examples/` | ablation harness, extreme scenario, GUI launcher, demo, synthetic sweep, benchmark |
+| `tests/` | protocol / buffer / policy / scenario / end-to-end / GUI / dataset-registry tests |
 | `tools/` | dataset download+verify, term scan, reproducible GUI capture |
 
 ## Outputs
 
 - `output/policy_ablation/policy_ablation.json` — **the ablation**: per-run
   rows, median-of-N `summary` cells with observed ranges, workload description
+- `output/scenario/extreme_scenario.json` — **burst/outage scenario**: per-stage
+  conservation, staleness distribution, packets per frame, `data_status`
+- `output/scenario/<policy>/figures/view_*.png` — four views captured from the
+  scenario's synthetic payloads
 - `output/cross_domain/cross_domain_summary.json` — two-domain delivery and
   latency index
 - `output/cross_domain/<key>/real_benchmark.json` — per-dataset measurements,
@@ -478,6 +585,12 @@ channel / sequence / timestamp / payload length`. All payloads are plain
 numeric vectors; no acquisition geometry, platform parameters or
 domain-specific units are present.
 
+Recordings from restricted deployments are **not** in this repository and are
+not reconstructed from: the burst/outage scenario in `src/scenarios.py`
+generates its own payloads from a seeded generator and labels them
+`data_status: "synthetic"`. That is a deliberate boundary — the load regime is
+reproducible, the field data is not redistributed.
+
 ## Known limitations
 
 - **The render cost model is linear in the batch size.** The consumer folds
@@ -497,6 +610,10 @@ domain-specific units are present.
   a 1.000 delivery ratio is a property of a loopback run, not of the protocol.
 - **Real-data workloads are offline replays** of public recordings. The audio
   channel is audification of those samples, not a microphone recording.
+- **The burst/outage scenario is synthetic by construction.** It reproduces a
+  load profile and a transient-rich signal shape, not recorded field data; the
+  field recordings behind that scenario are access-restricted. Do not quote its
+  numbers as field measurements.
 - **No independent external reuse yet.** Two internal benchmark domains
   demonstrate generality, not adoption; a software-article Impact statement
   needs the latter.

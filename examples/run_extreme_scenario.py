@@ -1,0 +1,238 @@
+"""Extreme-condition replay of a multi-sensor acoustic array.
+
+    python examples/run_extreme_scenario.py --policy drop_oldest --capacity 16
+    python examples/run_extreme_scenario.py --policy block --capacity 16
+
+The load is bursty on purpose: a quiet stretch, a broadband burst at
+``--burst-gain`` times the base rate, then a short outage.  That is the regime
+where a display pipeline's admission policy actually decides what the operator
+sees, and it is the regime a steady-rate benchmark never reaches.
+
+The payloads are synthetic (see :mod:`src.scenarios`): the field recordings
+that would make a faithful replay possible are access-restricted and cannot be
+redistributed.  The report states this in ``workload.data_status`` so a number
+produced by this script can never be mistaken for a field measurement.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import multiprocessing as mp
+import queue
+import sys
+from pathlib import Path
+
+_ROOT = Path(__file__).resolve().parents[1]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from src.buffers import OverflowPolicy  # noqa: E402
+from src.pipeline import PipelineConfig, StreamPipeline  # noqa: E402
+from src.scenarios import ArrayScenarioSpec, send_scenario  # noqa: E402
+
+
+def _sender_worker(spec: ArrayScenarioSpec, result_queue) -> None:
+    try:
+        result_queue.put(send_scenario(spec))
+    except Exception as exc:  # noqa: BLE001 - surface the child failure verbatim
+        result_queue.put({"error": f"{type(exc).__name__}: {exc}"})
+
+
+def _ratio(num: int, den: int) -> float:
+    return round(num / den, 4) if den else 0.0
+
+
+def _one_run(args, policy: str, output_dir: Path, port: int) -> dict:
+    cfg = PipelineConfig(
+        port=port,
+        frame_capacity=args.capacity,
+        overflow_policy=policy,
+        refresh_hz=args.refresh,
+        archive_audio=args.audio,
+        output_dir=output_dir,
+        enable_display=True,
+        snapshot_every=args.snapshot_every,
+    )
+    spec = ArrayScenarioSpec(
+        port=port,
+        duration_s=args.duration,
+        base_rate_mbps=args.rate,
+        n_sensors=args.sensors,
+        cycle_s=args.cycle,
+        burst_s=args.burst,
+        outage_s=args.outage,
+        burst_gain=args.burst_gain,
+        malformed_ratio=args.malformed,
+        n_bins=cfg.n_bins,
+    )
+    pipeline = StreamPipeline(cfg).start()
+    ctx = mp.get_context("spawn")
+    results = ctx.Queue()
+    sender = ctx.Process(target=_sender_worker, args=(spec, results),
+                         name="scenario-source", daemon=True)
+    sender.start()
+    try:
+        stats = results.get(timeout=args.duration + 60)
+    except queue.Empty:
+        stats = {"error": "sender produced no statistics"}
+    if sender.is_alive():
+        sender.join(timeout=3)
+        if sender.is_alive():
+            sender.terminate()
+    pipeline.stop()
+
+    report = pipeline.report()
+    flow = report["flow"]
+    sent = int(stats.get("sent_packets", 0))
+    received = flow["udp_received"]
+    parsed = flow["parsed"]
+    frame = report["buffers"]["frame"]
+    source = report["buffers"]["source"]
+    frame_in = flow["parsed_by_type"]["spectrum"] + flow["parsed_by_type"]["waveform"]
+    frame_out = (flow["delivered_to_consumer"] + frame["dropped"]
+                 + flow["dropped_at_shutdown"] + frame["occupancy"])
+    rounds = report["rendered_frames"]
+    stale = report["staleness_ms"]
+    e2e = report["end_to_end_latency_ms"]
+
+    return {
+        "policy": policy,
+        "workload": {
+            "data_status": stats.get("provenance"),
+            "note": (
+                "Synthetic burst/outage scenario standing in for a field "
+                "deployment whose recordings are access-restricted. Not a "
+                "field measurement; not a model of any specific sensor."
+            ),
+            "profile": stats.get("profile"),
+            "peak_packets_per_s": stats.get("peak_packets_per_s"),
+            "audio_archiving": bool(args.audio),
+        },
+        "conservation": {
+            "sent": sent,
+            "udp_received": received,
+            "parsed": parsed,
+            "delivered_to_consumer": flow["delivered_to_consumer"],
+            "udp_delivery_ratio": _ratio(received, sent),
+            "parse_yield": flow["parse_yield"],
+            "sequence_gaps": flow["sequence_gaps"],
+            "duplicate_or_reorder": flow["duplicate_or_reorder"],
+            "frame_buffer_in": frame_in,
+            "frame_buffer_out": frame_out,
+            "conservation_closed": frame_in == frame_out,
+        },
+        "discard": {
+            "source_dropped": source["dropped"],
+            "frame_dropped": frame["dropped"],
+            "frame_block_timeout": frame["dropped_block_timeout"],
+            "frame_hard_cap": frame["dropped_hard_cap"],
+            "dropped_age_ms_p50": frame["dropped_age_ms"]["p50_ms"],
+            "dropped_age_ms_p95": frame["dropped_age_ms"]["p95_ms"],
+            "frame_occupancy": frame["occupancy"],
+        },
+        "latency": {
+            "ingest_p95_ms": report["ingest_latency_ms"]["p95_ms"],
+            "e2e_p50_ms": e2e["p50_ms"],
+            "e2e_p95_ms": e2e["p95_ms"],
+            "staleness_p50_ms": stale["p50_ms"],
+            "staleness_p95_ms": stale["p95_ms"],
+            "staleness_max_ms": stale["max_ms"],
+        },
+        "frame": {
+            "rounds": rounds,
+            "packets_per_frame": round(
+                flow["delivered_to_consumer"] / rounds, 2) if rounds else 0.0,
+        },
+        "throughput_mbps": report["throughput_mbps"],
+        "audio_segments": report["audio_segments"],
+        "figures": [str(p) for p in report["snapshots"]],
+        "sender_error": stats.get("error"),
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Extreme-condition multi-sensor acoustic scenario"
+    )
+    parser.add_argument("--policy", default="drop_oldest",
+                        choices=[p.value for p in OverflowPolicy])
+    parser.add_argument("--policies", default="",
+                        help="comma-separated policies to compare in one run")
+    parser.add_argument("--capacity", type=int, default=16)
+    parser.add_argument("--refresh", type=float, default=20.0)
+    parser.add_argument("--rate", type=float, default=3.0,
+                        help="base rate in Mbit/s; bursts multiply this")
+    parser.add_argument("--sensors", type=int, default=6)
+    parser.add_argument("--duration", type=float, default=12.0)
+    parser.add_argument("--cycle", type=float, default=3.0)
+    parser.add_argument("--burst", type=float, default=0.9)
+    parser.add_argument("--outage", type=float, default=0.4)
+    parser.add_argument("--burst-gain", type=float, default=3.0)
+    parser.add_argument("--malformed", type=float, default=0.0)
+    parser.add_argument("--audio", action="store_true",
+                        help="archive WAV segments (adds file I/O to the parse "
+                             "path, so timing numbers are no longer clean)")
+    parser.add_argument("--snapshot-every", type=int, default=25)
+    parser.add_argument("--port", type=int, default=19500)
+    parser.add_argument("--output", default="output/scenario")
+    args = parser.parse_args()
+
+    policies = ([p.strip() for p in args.policies.split(",") if p.strip()]
+                or [args.policy])
+    root = Path(args.output)
+    root.mkdir(parents=True, exist_ok=True)
+
+    runs = []
+    port = args.port
+    print(f"Scenario: {args.sensors} sensors, base {args.rate} Mbit/s, "
+          f"burst x{args.burst_gain} for {args.burst}s, outage {args.outage}s "
+          f"every {args.cycle}s | buffer {args.capacity} | synthetic payloads")
+    for policy in policies:
+        out = root / policy
+        out.mkdir(parents=True, exist_ok=True)
+        run = _one_run(args, policy, out, port)
+        port += 1
+        runs.append(run)
+        if run["sender_error"]:
+            print(f"  {policy:<12} SENDER ERROR: {run['sender_error']}")
+            continue
+        c, d, lat = run["conservation"], run["discard"], run["latency"]
+        print(
+            f"  {policy:<12} sent {c['sent']:>5d} recv {c['udp_received']:>5d} "
+            f"parsed {c['parsed']:>5d} | drop src {d['source_dropped']:>4d} "
+            f"frm {d['frame_dropped']:>4d} | stale p50/p95/max "
+            f"{lat['staleness_p50_ms']:>7.1f}/{lat['staleness_p95_ms']:>7.1f}/"
+            f"{lat['staleness_max_ms']:>7.1f} ms | pkt/frame "
+            f"{run['frame']['packets_per_frame']:>5.1f} | "
+            f"chain {'ok' if c['conservation_closed'] else 'BROKEN'}"
+        )
+
+    payload = {
+        "scenario": {
+            "description": (
+                "Multi-sensor acoustic array replayed with a burst/outage load "
+                "profile. Payloads are synthetic; the field recordings are "
+                "access-restricted and are not redistributed or reconstructed."
+            ),
+            "data_status": "synthetic",
+            "sensors": args.sensors,
+            "base_rate_mbps": args.rate,
+            "cycle_s": args.cycle,
+            "burst_s": args.burst,
+            "burst_gain": args.burst_gain,
+            "outage_s": args.outage,
+            "frame_capacity": args.capacity,
+            "display_refresh_hz": args.refresh,
+            "seconds_per_run": args.duration,
+        },
+        "runs": runs,
+    }
+    path = root / "extreme_scenario.json"
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"\nReport: {path.resolve()}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

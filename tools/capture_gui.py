@@ -62,6 +62,14 @@ def main() -> int:
                         help="capture the synthetic smoke test or any registered real dataset")
     parser.add_argument("--wait", type=float, default=1.5,
                         help="seconds of traffic to accumulate before capture")
+    parser.add_argument("--capacity", type=int, default=None,
+                        help="display FIFO capacity; small values (e.g. 8) make "
+                             "the buffer overflow so the policy switch is visible")
+    parser.add_argument("--policy", default=None,
+                        help="overflow policy: drop_oldest / drop_newest / block / "
+                             "unbounded")
+    parser.add_argument("--refresh", type=float, default=None,
+                        help="display refresh in Hz")
     parser.add_argument("--width", type=int, default=1440)
     parser.add_argument("--height", type=int, default=1160)
     parser.add_argument("--virtual-time", type=int, default=1500,
@@ -82,6 +90,12 @@ def main() -> int:
         "duration_s": max(90.0, args.wait + 80),
         "malformed_ratio": 0.0 if args.source != "synthetic" else 0.01,
     })
+    if args.capacity is not None:
+        app.params["frame_capacity"] = args.capacity
+    if args.policy is not None:
+        app.params["overflow_policy"] = args.policy
+    if args.refresh is not None:
+        app.params["refresh_hz"] = args.refresh
     started = app.start()
     if not started.get("ok"):
         print(started["message"])

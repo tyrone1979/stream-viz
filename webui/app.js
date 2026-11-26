@@ -144,6 +144,7 @@
       $('source').value = s.config.source || 'synthetic';
       $('rate').value = s.config.rate_mbps ?? 4;
       $('capacity').value = s.config.frame_capacity ?? 64;
+      $('policy').value = s.config.overflow_policy || 'drop_oldest';
       $('refresh').value = s.config.refresh_hz ?? 30;
       $('malformed').value = s.config.malformed_ratio ?? 0.01;
       sourceSynced = true;
@@ -154,6 +155,8 @@
     $('sourceBadge').textContent = isReal ? `REAL · ${shortName}` : 'SYNTHETIC';
     $('sourceBadge').className = 'badge' + (isReal ? ' real' : '');
     const origin = isReal && src.provenance ? src.provenance.record : 'local generator';
+    const policy = (s.metrics && s.metrics.overflow_policy) || s.config.overflow_policy || 'drop_oldest';
+    $('policyBadge').textContent = policy;
     $('endpoint').textContent = `${origin} · udp ${s.config.udp_port} · ${s.config.refresh_hz} Hz · ${s.config.frame_capacity} frames`;
 
     const c = s.metrics.counters || {};
@@ -167,6 +170,8 @@
     const e2e = s.metrics.end_to_end_latency_ms || {};
     $('mIngest').textContent = ing.count ? `${ing.p95_ms} ms` : '—';
     $('mLatency').textContent = e2e.count ? `${e2e.p50_ms} / ${e2e.p95_ms} ms` : '— / —';
+    const stale = s.metrics.staleness_ms || {};
+    $('mStale').textContent = stale.count ? `${stale.p95_ms} ms` : '—';
 
     if (s.view_version !== lastVersion) {
       lastVersion = s.view_version;
@@ -177,7 +182,7 @@
       drawTrace('c-spec', spec, '#ffb457', 0,
                 s.trace_ceiling || Math.max(1.5, ...spec) * 1.08, false);
       $('versionBadge').textContent = `version ${s.view_version}`;
-      $('frameInfo').textContent = `${s.frames} rendered frames · ${c.display_frames || 0} spectrum packets · poll 8 Hz`;
+      $('frameInfo').textContent = `${s.frames} rendered frames · ${c.display_frames || 0} packets folded · poll 8 Hz`;
     }
 
     const [lo, hi] = s.audio.range;
@@ -226,6 +231,7 @@
       source: $('source').value,
       rate_mbps: Number($('rate').value),
       frame_capacity: Number($('capacity').value),
+      overflow_policy: $('policy').value,
       refresh_hz: Number($('refresh').value),
       malformed_ratio: Number($('malformed').value)
     });

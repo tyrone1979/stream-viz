@@ -157,6 +157,30 @@ class GuiApiTests(unittest.TestCase):
                 server.shutdown()
                 server.server_close()
 
+    def test_overflow_policy_is_selectable_from_the_ui(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app = StreamVizApp(udp_port=_free_udp_port(), output_dir=Path(tmp))
+            try:
+                rejected = app.start({"overflow_policy": "keep_everything"})
+                self.assertFalse(rejected["ok"])
+                self.assertIn("unknown overflow policy", rejected["message"])
+
+                started = app.start({
+                    "overflow_policy": "drop_newest",
+                    "rate_mbps": 1.0, "duration_s": 0.4,
+                })
+                self.assertTrue(started["ok"])
+                # The switch must reach the buffers, not just the form.
+                self.assertEqual(
+                    app.pipeline.report()["overflow_policy"], "drop_newest"
+                )
+                state = app.state()
+                self.assertEqual(state["config"]["overflow_policy"], "drop_newest")
+                self.assertIn("staleness_ms", state["metrics"])
+            finally:
+                if app.status == "running":
+                    app.stop()
+
     def test_restart_reuses_a_fresh_pipeline(self):
         with tempfile.TemporaryDirectory() as tmp:
             app = StreamVizApp(udp_port=_free_udp_port(), output_dir=Path(tmp))
