@@ -18,6 +18,10 @@ output/
 # manuscript, not of a run.
 !paper/figures/*.png
 
+# ...and the two archived measurements the paper cites. Everything else under
+# output/ stays ignored; these two are the evidence, not a run directory.
+!measurements/*.json
+
 # Python
 __pycache__/
 *.py[cod]

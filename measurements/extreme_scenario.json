@@ -1,0 +1,1001 @@
+{
+  "scenario": {
+    "description": "Multi-sensor acoustic array replayed with a burst/outage load profile. Payloads are synthetic; the field recordings are access-restricted and are not redistributed or reconstructed.",
+    "data_status": "synthetic",
+    "sensors": 6,
+    "base_rate_mbps": 3.0,
+    "cycle_s": 3.0,
+    "burst_s": 0.9,
+    "burst_gain": 3.0,
+    "outage_s": 0.4,
+    "frame_capacity": 16,
+    "display_refresh_hz": 20.0,
+    "seconds_per_run": 12.0,
+    "repeats": 3,
+    "note": "A single run on a shared machine can move a p95 by an order of magnitude; use summary[] (median + observed range) rather than any single row of runs[]."
+  },
+  "runs": [
+    {
+      "policy": "drop_oldest",
+      "workload": {
+        "data_status": "synthetic multi-sensor acoustic scenario (seeded generator); no recorded data, no field measurements",
+        "note": "Synthetic burst/outage scenario standing in for a field deployment whose recordings are access-restricted. Not a field measurement; not a model of any specific sensor.",
+        "profile": {
+          "cycle_s": 3.0,
+          "burst_s": 0.9,
+          "burst_gain": 3.0,
+          "outage_s": 0.4,
+          "base_rate_mbps": 3.0,
+          "n_sensors": 6,
+          "base_packets_per_s": 462.0
+        },
+        "peak_packets_per_s": 1387.1,
+        "audio_archiving": false
+      },
+      "conservation": {
+        "sent": 7512,
+        "udp_received": 7512,
+        "parsed": 7512,
+        "delivered_to_consumer": 2665,
+        "udp_delivery_ratio": 1.0,
+        "parse_yield": 1.0,
+        "sequence_gaps": 0,
+        "duplicate_or_reorder": 0,
+        "frame_buffer_in": 6935,
+        "frame_buffer_out": 6935,
+        "conservation_closed": true
+      },
+      "discard": {
+        "source_dropped": 0,
+        "frame_dropped": 4270,
+        "frame_block_timeout": 0,
+        "frame_hard_cap": 0,
+        "dropped_age_ms_p50": 28.0,
+        "dropped_age_ms_p95": 49.0,
+        "frame_occupancy": 0
+      },
+      "latency": {
+        "ingest_p95_ms": 3.0,
+        "e2e_p50_ms": 28.0,
+        "e2e_p95_ms": 54.0,
+        "staleness_p50_ms": 19.0,
+        "staleness_p95_ms": 33.0,
+        "staleness_max_ms": 66.0
+      },
+      "frame": {
+        "rounds": 169,
+        "packets_per_frame": 15.77,
+        "mean_interval_ms": 71.01
+      },
+      "throughput_mbps": 4.207,
+      "audio_segments": 0,
+      "figures": [
+        "output\\scenario\\drop_oldest\\rep1\\figures\\view_01.png",
+        "output\\scenario\\drop_oldest\\rep1\\figures\\view_02.png",
+        "output\\scenario\\drop_oldest\\rep1\\figures\\view_03.png",
+        "output\\scenario\\drop_oldest\\rep1\\figures\\view_04.png",
+        "output\\scenario\\drop_oldest\\rep1\\figures\\view_05.png",
+        "output\\scenario\\drop_oldest\\rep1\\figures\\view_06.png"
+      ],
+      "sender_error": null,
+      "repeat_index": 1
+    },
+    {
+      "policy": "drop_oldest",
+      "workload": {
+        "data_status": "synthetic multi-sensor acoustic scenario (seeded generator); no recorded data, no field measurements",
+        "note": "Synthetic burst/outage scenario standing in for a field deployment whose recordings are access-restricted. Not a field measurement; not a model of any specific sensor.",
+        "profile": {
+          "cycle_s": 3.0,
+          "burst_s": 0.9,
+          "burst_gain": 3.0,
+          "outage_s": 0.4,
+          "base_rate_mbps": 3.0,
+          "n_sensors": 6,
+          "base_packets_per_s": 462.0
+        },
+        "peak_packets_per_s": 1388.8,
+        "audio_archiving": false
+      },
+      "conservation": {
+        "sent": 7747,
+        "udp_received": 7747,
+        "parsed": 7747,
+        "delivered_to_consumer": 2766,
+        "udp_delivery_ratio": 1.0,
+        "parse_yield": 1.0,
+        "sequence_gaps": 0,
+        "duplicate_or_reorder": 0,
+        "frame_buffer_in": 7152,
+        "frame_buffer_out": 7152,
+        "conservation_closed": true
+      },
+      "discard": {
+        "source_dropped": 0,
+        "frame_dropped": 4386,
+        "frame_block_timeout": 0,
+        "frame_hard_cap": 0,
+        "dropped_age_ms_p50": 27.0,
+        "dropped_age_ms_p95": 50.0,
+        "frame_occupancy": 0
+      },
+      "latency": {
+        "ingest_p95_ms": 3.0,
+        "e2e_p50_ms": 28.0,
+        "e2e_p95_ms": 52.0,
+        "staleness_p50_ms": 19.0,
+        "staleness_p95_ms": 27.0,
+        "staleness_max_ms": 48.0
+      },
+      "frame": {
+        "rounds": 173,
+        "packets_per_frame": 15.99,
+        "mean_interval_ms": 69.36
+      },
+      "throughput_mbps": 4.337,
+      "audio_segments": 0,
+      "figures": [
+        "output\\scenario\\drop_oldest\\rep2\\figures\\view_01.png",
+        "output\\scenario\\drop_oldest\\rep2\\figures\\view_02.png",
+        "output\\scenario\\drop_oldest\\rep2\\figures\\view_03.png",
+        "output\\scenario\\drop_oldest\\rep2\\figures\\view_04.png",
+        "output\\scenario\\drop_oldest\\rep2\\figures\\view_05.png",
+        "output\\scenario\\drop_oldest\\rep2\\figures\\view_06.png"
+      ],
+      "sender_error": null,
+      "repeat_index": 2
+    },
+    {
+      "policy": "drop_oldest",
+      "workload": {
+        "data_status": "synthetic multi-sensor acoustic scenario (seeded generator); no recorded data, no field measurements",
+        "note": "Synthetic burst/outage scenario standing in for a field deployment whose recordings are access-restricted. Not a field measurement; not a model of any specific sensor.",
+        "profile": {
+          "cycle_s": 3.0,
+          "burst_s": 0.9,
+          "burst_gain": 3.0,
+          "outage_s": 0.4,
+          "base_rate_mbps": 3.0,
+          "n_sensors": 6,
+          "base_packets_per_s": 462.0
+        },
+        "peak_packets_per_s": 1387.5,
+        "audio_archiving": false
+      },
+      "conservation": {
+        "sent": 7217,
+        "udp_received": 7217,
+        "parsed": 7217,
+        "delivered_to_consumer": 2705,
+        "udp_delivery_ratio": 1.0,
+        "parse_yield": 1.0,
+        "sequence_gaps": 0,
+        "duplicate_or_reorder": 0,
+        "frame_buffer_in": 6662,
+        "frame_buffer_out": 6662,
+        "conservation_closed": true
+      },
+      "discard": {
+        "source_dropped": 0,
+        "frame_dropped": 3957,
+        "frame_block_timeout": 0,
+        "frame_hard_cap": 0,
+        "dropped_age_ms_p50": 28.0,
+        "dropped_age_ms_p95": 49.0,
+        "frame_occupancy": 0
+      },
+      "latency": {
+        "ingest_p95_ms": 3.0,
+        "e2e_p50_ms": 23.0,
+        "e2e_p95_ms": 52.0,
+        "staleness_p50_ms": 9.0,
+        "staleness_p95_ms": 40.0,
+        "staleness_max_ms": 60.0
+      },
+      "frame": {
+        "rounds": 171,
+        "packets_per_frame": 15.82,
+        "mean_interval_ms": 70.18
+      },
+      "throughput_mbps": 4.041,
+      "audio_segments": 0,
+      "figures": [
+        "output\\scenario\\drop_oldest\\rep3\\figures\\view_01.png",
+        "output\\scenario\\drop_oldest\\rep3\\figures\\view_02.png",
+        "output\\scenario\\drop_oldest\\rep3\\figures\\view_03.png",
+        "output\\scenario\\drop_oldest\\rep3\\figures\\view_04.png",
+        "output\\scenario\\drop_oldest\\rep3\\figures\\view_05.png",
+        "output\\scenario\\drop_oldest\\rep3\\figures\\view_06.png"
+      ],
+      "sender_error": null,
+      "repeat_index": 3
+    },
+    {
+      "policy": "drop_newest",
+      "workload": {
+        "data_status": "synthetic multi-sensor acoustic scenario (seeded generator); no recorded data, no field measurements",
+        "note": "Synthetic burst/outage scenario standing in for a field deployment whose recordings are access-restricted. Not a field measurement; not a model of any specific sensor.",
+        "profile": {
+          "cycle_s": 3.0,
+          "burst_s": 0.9,
+          "burst_gain": 3.0,
+          "outage_s": 0.4,
+          "base_rate_mbps": 3.0,
+          "n_sensors": 6,
+          "base_packets_per_s": 462.0
+        },
+        "peak_packets_per_s": 1388.7,
+        "audio_archiving": false
+      },
+      "conservation": {
+        "sent": 7968,
+        "udp_received": 7968,
+        "parsed": 7968,
+        "delivered_to_consumer": 2776,
+        "udp_delivery_ratio": 1.0,
+        "parse_yield": 1.0,
+        "sequence_gaps": 0,
+        "duplicate_or_reorder": 0,
+        "frame_buffer_in": 7356,
+        "frame_buffer_out": 7356,
+        "conservation_closed": true
+      },
+      "discard": {
+        "source_dropped": 0,
+        "frame_dropped": 4580,
+        "frame_block_timeout": 0,
+        "frame_hard_cap": 0,
+        "dropped_age_ms_p50": 8.0,
+        "dropped_age_ms_p95": 15.0,
+        "frame_occupancy": 0
+      },
+      "latency": {
+        "ingest_p95_ms": 2.0,
+        "e2e_p50_ms": 63.0,
+        "e2e_p95_ms": 78.0,
+        "staleness_p50_ms": 44.0,
+        "staleness_p95_ms": 70.0,
+        "staleness_max_ms": 73.0
+      },
+      "frame": {
+        "rounds": 175,
+        "packets_per_frame": 15.86,
+        "mean_interval_ms": 68.57
+      },
+      "throughput_mbps": 4.465,
+      "audio_segments": 0,
+      "figures": [
+        "output\\scenario\\drop_newest\\rep1\\figures\\view_01.png",
+        "output\\scenario\\drop_newest\\rep1\\figures\\view_02.png",
+        "output\\scenario\\drop_newest\\rep1\\figures\\view_03.png",
+        "output\\scenario\\drop_newest\\rep1\\figures\\view_04.png",
+        "output\\scenario\\drop_newest\\rep1\\figures\\view_05.png",
+        "output\\scenario\\drop_newest\\rep1\\figures\\view_06.png"
+      ],
+      "sender_error": null,
+      "repeat_index": 1
+    },
+    {
+      "policy": "drop_newest",
+      "workload": {
+        "data_status": "synthetic multi-sensor acoustic scenario (seeded generator); no recorded data, no field measurements",
+        "note": "Synthetic burst/outage scenario standing in for a field deployment whose recordings are access-restricted. Not a field measurement; not a model of any specific sensor.",
+        "profile": {
+          "cycle_s": 3.0,
+          "burst_s": 0.9,
+          "burst_gain": 3.0,
+          "outage_s": 0.4,
+          "base_rate_mbps": 3.0,
+          "n_sensors": 6,
+          "base_packets_per_s": 462.0
+        },
+        "peak_packets_per_s": 1387.7,
+        "audio_archiving": false
+      },
+      "conservation": {
+        "sent": 7845,
+        "udp_received": 7845,
+        "parsed": 7845,
+        "delivered_to_consumer": 2783,
+        "udp_delivery_ratio": 1.0,
+        "parse_yield": 1.0,
+        "sequence_gaps": 0,
+        "duplicate_or_reorder": 0,
+        "frame_buffer_in": 7242,
+        "frame_buffer_out": 7242,
+        "conservation_closed": true
+      },
+      "discard": {
+        "source_dropped": 0,
+        "frame_dropped": 4459,
+        "frame_block_timeout": 0,
+        "frame_hard_cap": 0,
+        "dropped_age_ms_p50": 9.0,
+        "dropped_age_ms_p95": 16.0,
+        "frame_occupancy": 0
+      },
+      "latency": {
+        "ingest_p95_ms": 2.0,
+        "e2e_p50_ms": 63.0,
+        "e2e_p95_ms": 78.0,
+        "staleness_p50_ms": 44.0,
+        "staleness_p95_ms": 68.0,
+        "staleness_max_ms": 74.0
+      },
+      "frame": {
+        "rounds": 175,
+        "packets_per_frame": 15.9,
+        "mean_interval_ms": 68.57
+      },
+      "throughput_mbps": 4.393,
+      "audio_segments": 0,
+      "figures": [
+        "output\\scenario\\drop_newest\\rep2\\figures\\view_01.png",
+        "output\\scenario\\drop_newest\\rep2\\figures\\view_02.png",
+        "output\\scenario\\drop_newest\\rep2\\figures\\view_03.png",
+        "output\\scenario\\drop_newest\\rep2\\figures\\view_04.png",
+        "output\\scenario\\drop_newest\\rep2\\figures\\view_05.png",
+        "output\\scenario\\drop_newest\\rep2\\figures\\view_06.png"
+      ],
+      "sender_error": null,
+      "repeat_index": 2
+    },
+    {
+      "policy": "drop_newest",
+      "workload": {
+        "data_status": "synthetic multi-sensor acoustic scenario (seeded generator); no recorded data, no field measurements",
+        "note": "Synthetic burst/outage scenario standing in for a field deployment whose recordings are access-restricted. Not a field measurement; not a model of any specific sensor.",
+        "profile": {
+          "cycle_s": 3.0,
+          "burst_s": 0.9,
+          "burst_gain": 3.0,
+          "outage_s": 0.4,
+          "base_rate_mbps": 3.0,
+          "n_sensors": 6,
+          "base_packets_per_s": 462.0
+        },
+        "peak_packets_per_s": 1389.3,
+        "audio_archiving": false
+      },
+      "conservation": {
+        "sent": 7174,
+        "udp_received": 7174,
+        "parsed": 7174,
+        "delivered_to_consumer": 2651,
+        "udp_delivery_ratio": 1.0,
+        "parse_yield": 1.0,
+        "sequence_gaps": 0,
+        "duplicate_or_reorder": 0,
+        "frame_buffer_in": 6623,
+        "frame_buffer_out": 6623,
+        "conservation_closed": true
+      },
+      "discard": {
+        "source_dropped": 0,
+        "frame_dropped": 3972,
+        "frame_block_timeout": 0,
+        "frame_hard_cap": 0,
+        "dropped_age_ms_p50": 9.0,
+        "dropped_age_ms_p95": 20.0,
+        "frame_occupancy": 0
+      },
+      "latency": {
+        "ingest_p95_ms": 4.0,
+        "e2e_p50_ms": 66.0,
+        "e2e_p95_ms": 99.0,
+        "staleness_p50_ms": 51.0,
+        "staleness_p95_ms": 77.0,
+        "staleness_max_ms": 138.0
+      },
+      "frame": {
+        "rounds": 169,
+        "packets_per_frame": 15.69,
+        "mean_interval_ms": 71.01
+      },
+      "throughput_mbps": 3.997,
+      "audio_segments": 0,
+      "figures": [
+        "output\\scenario\\drop_newest\\rep3\\figures\\view_01.png",
+        "output\\scenario\\drop_newest\\rep3\\figures\\view_02.png",
+        "output\\scenario\\drop_newest\\rep3\\figures\\view_03.png",
+        "output\\scenario\\drop_newest\\rep3\\figures\\view_04.png",
+        "output\\scenario\\drop_newest\\rep3\\figures\\view_05.png",
+        "output\\scenario\\drop_newest\\rep3\\figures\\view_06.png"
+      ],
+      "sender_error": null,
+      "repeat_index": 3
+    },
+    {
+      "policy": "block",
+      "workload": {
+        "data_status": "synthetic multi-sensor acoustic scenario (seeded generator); no recorded data, no field measurements",
+        "note": "Synthetic burst/outage scenario standing in for a field deployment whose recordings are access-restricted. Not a field measurement; not a model of any specific sensor.",
+        "profile": {
+          "cycle_s": 3.0,
+          "burst_s": 0.9,
+          "burst_gain": 3.0,
+          "outage_s": 0.4,
+          "base_rate_mbps": 3.0,
+          "n_sensors": 6,
+          "base_packets_per_s": 462.0
+        },
+        "peak_packets_per_s": 1386.5,
+        "audio_archiving": false
+      },
+      "conservation": {
+        "sent": 7769,
+        "udp_received": 7769,
+        "parsed": 7769,
+        "delivered_to_consumer": 3136,
+        "udp_delivery_ratio": 1.0,
+        "parse_yield": 1.0,
+        "sequence_gaps": 0,
+        "duplicate_or_reorder": 0,
+        "frame_buffer_in": 7172,
+        "frame_buffer_out": 7172,
+        "conservation_closed": true
+      },
+      "discard": {
+        "source_dropped": 0,
+        "frame_dropped": 4004,
+        "frame_block_timeout": 4004,
+        "frame_hard_cap": 0,
+        "dropped_age_ms_p50": 3767.5,
+        "dropped_age_ms_p95": 6691.7,
+        "frame_occupancy": 16
+      },
+      "latency": {
+        "ingest_p95_ms": 2.0,
+        "e2e_p50_ms": 3514.0,
+        "e2e_p95_ms": 6983.25,
+        "staleness_p50_ms": 3493.5,
+        "staleness_p95_ms": 6956.25,
+        "staleness_max_ms": 7179.0
+      },
+      "frame": {
+        "rounds": 196,
+        "packets_per_frame": 16.0,
+        "mean_interval_ms": 61.22
+      },
+      "throughput_mbps": 4.351,
+      "audio_segments": 0,
+      "figures": [
+        "output\\scenario\\block\\rep1\\figures\\view_01.png",
+        "output\\scenario\\block\\rep1\\figures\\view_02.png",
+        "output\\scenario\\block\\rep1\\figures\\view_03.png",
+        "output\\scenario\\block\\rep1\\figures\\view_04.png",
+        "output\\scenario\\block\\rep1\\figures\\view_05.png",
+        "output\\scenario\\block\\rep1\\figures\\view_06.png"
+      ],
+      "sender_error": null,
+      "repeat_index": 1
+    },
+    {
+      "policy": "block",
+      "workload": {
+        "data_status": "synthetic multi-sensor acoustic scenario (seeded generator); no recorded data, no field measurements",
+        "note": "Synthetic burst/outage scenario standing in for a field deployment whose recordings are access-restricted. Not a field measurement; not a model of any specific sensor.",
+        "profile": {
+          "cycle_s": 3.0,
+          "burst_s": 0.9,
+          "burst_gain": 3.0,
+          "outage_s": 0.4,
+          "base_rate_mbps": 3.0,
+          "n_sensors": 6,
+          "base_packets_per_s": 462.0
+        },
+        "peak_packets_per_s": 1389.3,
+        "audio_archiving": false
+      },
+      "conservation": {
+        "sent": 8125,
+        "udp_received": 7982,
+        "parsed": 7982,
+        "delivered_to_consumer": 3168,
+        "udp_delivery_ratio": 0.9824,
+        "parse_yield": 1.0,
+        "sequence_gaps": 0,
+        "duplicate_or_reorder": 0,
+        "frame_buffer_in": 7368,
+        "frame_buffer_out": 7368,
+        "conservation_closed": true
+      },
+      "discard": {
+        "source_dropped": 0,
+        "frame_dropped": 4168,
+        "frame_block_timeout": 4168,
+        "frame_hard_cap": 0,
+        "dropped_age_ms_p50": 4280.0,
+        "dropped_age_ms_p95": 7249.95,
+        "frame_occupancy": 16
+      },
+      "latency": {
+        "ingest_p95_ms": 2.0,
+        "e2e_p50_ms": 4113.5,
+        "e2e_p95_ms": 7553.65,
+        "staleness_p50_ms": 4097.0,
+        "staleness_p95_ms": 7513.05,
+        "staleness_max_ms": 7768.0
+      },
+      "frame": {
+        "rounds": 198,
+        "packets_per_frame": 16.0,
+        "mean_interval_ms": 60.61
+      },
+      "throughput_mbps": 4.592,
+      "audio_segments": 0,
+      "figures": [
+        "output\\scenario\\block\\rep2\\figures\\view_01.png",
+        "output\\scenario\\block\\rep2\\figures\\view_02.png",
+        "output\\scenario\\block\\rep2\\figures\\view_03.png",
+        "output\\scenario\\block\\rep2\\figures\\view_04.png",
+        "output\\scenario\\block\\rep2\\figures\\view_05.png",
+        "output\\scenario\\block\\rep2\\figures\\view_06.png"
+      ],
+      "sender_error": null,
+      "repeat_index": 2
+    },
+    {
+      "policy": "block",
+      "workload": {
+        "data_status": "synthetic multi-sensor acoustic scenario (seeded generator); no recorded data, no field measurements",
+        "note": "Synthetic burst/outage scenario standing in for a field deployment whose recordings are access-restricted. Not a field measurement; not a model of any specific sensor.",
+        "profile": {
+          "cycle_s": 3.0,
+          "burst_s": 0.9,
+          "burst_gain": 3.0,
+          "outage_s": 0.4,
+          "base_rate_mbps": 3.0,
+          "n_sensors": 6,
+          "base_packets_per_s": 462.0
+        },
+        "peak_packets_per_s": 1388.9,
+        "audio_archiving": false
+      },
+      "conservation": {
+        "sent": 8127,
+        "udp_received": 7749,
+        "parsed": 7749,
+        "delivered_to_consumer": 3184,
+        "udp_delivery_ratio": 0.9535,
+        "parse_yield": 1.0,
+        "sequence_gaps": 378,
+        "duplicate_or_reorder": 0,
+        "frame_buffer_in": 7153,
+        "frame_buffer_out": 7153,
+        "conservation_closed": true
+      },
+      "discard": {
+        "source_dropped": 0,
+        "frame_dropped": 3937,
+        "frame_block_timeout": 3937,
+        "frame_hard_cap": 0,
+        "dropped_age_ms_p50": 4522.0,
+        "dropped_age_ms_p95": 7246.6,
+        "frame_occupancy": 16
+      },
+      "latency": {
+        "ingest_p95_ms": 1.0,
+        "e2e_p50_ms": 4086.0,
+        "e2e_p95_ms": 7516.75,
+        "staleness_p50_ms": 4067.0,
+        "staleness_p95_ms": 7494.7,
+        "staleness_max_ms": 7724.0
+      },
+      "frame": {
+        "rounds": 199,
+        "packets_per_frame": 16.0,
+        "mean_interval_ms": 60.3
+      },
+      "throughput_mbps": 4.339,
+      "audio_segments": 0,
+      "figures": [
+        "output\\scenario\\block\\rep3\\figures\\view_01.png",
+        "output\\scenario\\block\\rep3\\figures\\view_02.png",
+        "output\\scenario\\block\\rep3\\figures\\view_03.png",
+        "output\\scenario\\block\\rep3\\figures\\view_04.png",
+        "output\\scenario\\block\\rep3\\figures\\view_05.png",
+        "output\\scenario\\block\\rep3\\figures\\view_06.png"
+      ],
+      "sender_error": null,
+      "repeat_index": 3
+    },
+    {
+      "policy": "unbounded",
+      "workload": {
+        "data_status": "synthetic multi-sensor acoustic scenario (seeded generator); no recorded data, no field measurements",
+        "note": "Synthetic burst/outage scenario standing in for a field deployment whose recordings are access-restricted. Not a field measurement; not a model of any specific sensor.",
+        "profile": {
+          "cycle_s": 3.0,
+          "burst_s": 0.9,
+          "burst_gain": 3.0,
+          "outage_s": 0.4,
+          "base_rate_mbps": 3.0,
+          "n_sensors": 6,
+          "base_packets_per_s": 462.0
+        },
+        "peak_packets_per_s": 1389.7,
+        "audio_archiving": false
+      },
+      "conservation": {
+        "sent": 8130,
+        "udp_received": 8130,
+        "parsed": 8130,
+        "delivered_to_consumer": 7505,
+        "udp_delivery_ratio": 1.0,
+        "parse_yield": 1.0,
+        "sequence_gaps": 0,
+        "duplicate_or_reorder": 0,
+        "frame_buffer_in": 7505,
+        "frame_buffer_out": 7505,
+        "conservation_closed": true
+      },
+      "discard": {
+        "source_dropped": 0,
+        "frame_dropped": 0,
+        "frame_block_timeout": 0,
+        "frame_hard_cap": 0,
+        "dropped_age_ms_p50": 0.0,
+        "dropped_age_ms_p95": 0.0,
+        "frame_occupancy": 0
+      },
+      "latency": {
+        "ingest_p95_ms": 2.0,
+        "e2e_p50_ms": 47.0,
+        "e2e_p95_ms": 77.0,
+        "staleness_p50_ms": 20.0,
+        "staleness_p95_ms": 25.0,
+        "staleness_max_ms": 53.0
+      },
+      "frame": {
+        "rounds": 176,
+        "packets_per_frame": 42.64,
+        "mean_interval_ms": 68.18
+      },
+      "throughput_mbps": 4.551,
+      "audio_segments": 0,
+      "figures": [
+        "output\\scenario\\unbounded\\rep1\\figures\\view_01.png",
+        "output\\scenario\\unbounded\\rep1\\figures\\view_02.png",
+        "output\\scenario\\unbounded\\rep1\\figures\\view_03.png",
+        "output\\scenario\\unbounded\\rep1\\figures\\view_04.png",
+        "output\\scenario\\unbounded\\rep1\\figures\\view_05.png",
+        "output\\scenario\\unbounded\\rep1\\figures\\view_06.png"
+      ],
+      "sender_error": null,
+      "repeat_index": 1
+    },
+    {
+      "policy": "unbounded",
+      "workload": {
+        "data_status": "synthetic multi-sensor acoustic scenario (seeded generator); no recorded data, no field measurements",
+        "note": "Synthetic burst/outage scenario standing in for a field deployment whose recordings are access-restricted. Not a field measurement; not a model of any specific sensor.",
+        "profile": {
+          "cycle_s": 3.0,
+          "burst_s": 0.9,
+          "burst_gain": 3.0,
+          "outage_s": 0.4,
+          "base_rate_mbps": 3.0,
+          "n_sensors": 6,
+          "base_packets_per_s": 462.0
+        },
+        "peak_packets_per_s": 1387.8,
+        "audio_archiving": false
+      },
+      "conservation": {
+        "sent": 8130,
+        "udp_received": 8130,
+        "parsed": 8130,
+        "delivered_to_consumer": 7505,
+        "udp_delivery_ratio": 1.0,
+        "parse_yield": 1.0,
+        "sequence_gaps": 0,
+        "duplicate_or_reorder": 0,
+        "frame_buffer_in": 7505,
+        "frame_buffer_out": 7505,
+        "conservation_closed": true
+      },
+      "discard": {
+        "source_dropped": 0,
+        "frame_dropped": 0,
+        "frame_block_timeout": 0,
+        "frame_hard_cap": 0,
+        "dropped_age_ms_p50": 0.0,
+        "dropped_age_ms_p95": 0.0,
+        "frame_occupancy": 0
+      },
+      "latency": {
+        "ingest_p95_ms": 2.0,
+        "e2e_p50_ms": 39.0,
+        "e2e_p95_ms": 70.0,
+        "staleness_p50_ms": 6.0,
+        "staleness_p95_ms": 23.0,
+        "staleness_max_ms": 55.0
+      },
+      "frame": {
+        "rounds": 176,
+        "packets_per_frame": 42.64,
+        "mean_interval_ms": 68.18
+      },
+      "throughput_mbps": 4.552,
+      "audio_segments": 0,
+      "figures": [
+        "output\\scenario\\unbounded\\rep2\\figures\\view_01.png",
+        "output\\scenario\\unbounded\\rep2\\figures\\view_02.png",
+        "output\\scenario\\unbounded\\rep2\\figures\\view_03.png",
+        "output\\scenario\\unbounded\\rep2\\figures\\view_04.png",
+        "output\\scenario\\unbounded\\rep2\\figures\\view_05.png",
+        "output\\scenario\\unbounded\\rep2\\figures\\view_06.png"
+      ],
+      "sender_error": null,
+      "repeat_index": 2
+    },
+    {
+      "policy": "unbounded",
+      "workload": {
+        "data_status": "synthetic multi-sensor acoustic scenario (seeded generator); no recorded data, no field measurements",
+        "note": "Synthetic burst/outage scenario standing in for a field deployment whose recordings are access-restricted. Not a field measurement; not a model of any specific sensor.",
+        "profile": {
+          "cycle_s": 3.0,
+          "burst_s": 0.9,
+          "burst_gain": 3.0,
+          "outage_s": 0.4,
+          "base_rate_mbps": 3.0,
+          "n_sensors": 6,
+          "base_packets_per_s": 462.0
+        },
+        "peak_packets_per_s": 1388.1,
+        "audio_archiving": false
+      },
+      "conservation": {
+        "sent": 8130,
+        "udp_received": 8130,
+        "parsed": 8130,
+        "delivered_to_consumer": 7505,
+        "udp_delivery_ratio": 1.0,
+        "parse_yield": 1.0,
+        "sequence_gaps": 0,
+        "duplicate_or_reorder": 0,
+        "frame_buffer_in": 7505,
+        "frame_buffer_out": 7505,
+        "conservation_closed": true
+      },
+      "discard": {
+        "source_dropped": 0,
+        "frame_dropped": 0,
+        "frame_block_timeout": 0,
+        "frame_hard_cap": 0,
+        "dropped_age_ms_p50": 0.0,
+        "dropped_age_ms_p95": 0.0,
+        "frame_occupancy": 0
+      },
+      "latency": {
+        "ingest_p95_ms": 2.0,
+        "e2e_p50_ms": 45.0,
+        "e2e_p95_ms": 76.0,
+        "staleness_p50_ms": 19.0,
+        "staleness_p95_ms": 24.0,
+        "staleness_max_ms": 55.0
+      },
+      "frame": {
+        "rounds": 177,
+        "packets_per_frame": 42.4,
+        "mean_interval_ms": 67.8
+      },
+      "throughput_mbps": 4.552,
+      "audio_segments": 0,
+      "figures": [
+        "output\\scenario\\unbounded\\rep3\\figures\\view_01.png",
+        "output\\scenario\\unbounded\\rep3\\figures\\view_02.png",
+        "output\\scenario\\unbounded\\rep3\\figures\\view_03.png",
+        "output\\scenario\\unbounded\\rep3\\figures\\view_04.png",
+        "output\\scenario\\unbounded\\rep3\\figures\\view_05.png",
+        "output\\scenario\\unbounded\\rep3\\figures\\view_06.png"
+      ],
+      "sender_error": null,
+      "repeat_index": 3
+    }
+  ],
+  "summary": [
+    {
+      "policy": "drop_oldest",
+      "repeats": 3,
+      "conservation_closed_all": true,
+      "sender_errors": 0,
+      "latency.e2e_p95_ms": {
+        "median": 52.0,
+        "min": 52.0,
+        "max": 54.0
+      },
+      "latency.staleness_p95_ms": {
+        "median": 33.0,
+        "min": 27.0,
+        "max": 40.0
+      },
+      "latency.staleness_max_ms": {
+        "median": 60.0,
+        "min": 48.0,
+        "max": 66.0
+      },
+      "discard.frame_dropped": {
+        "median": 4270.0,
+        "min": 3957.0,
+        "max": 4386.0
+      },
+      "discard.dropped_age_ms_p95": {
+        "median": 49.0,
+        "min": 49.0,
+        "max": 50.0
+      },
+      "conservation.sent": 7512.0,
+      "conservation.udp_received": 7512.0,
+      "conservation.parsed": 7512.0,
+      "conservation.delivered_to_consumer": 2705.0,
+      "conservation.sequence_gaps": 0.0,
+      "discard.source_dropped": 0.0,
+      "discard.frame_occupancy": 0.0,
+      "discard.frame_block_timeout": 0.0,
+      "discard.frame_hard_cap": 0.0,
+      "latency.e2e_p50_ms": 28.0,
+      "latency.staleness_p50_ms": 19.0,
+      "latency.ingest_p95_ms": 3.0,
+      "frame.packets_per_frame": 15.82,
+      "conservation.udp_delivery_ratio": {
+        "median": 1.0,
+        "min": 1.0,
+        "max": 1.0
+      },
+      "throughput_mbps": 4.207
+    },
+    {
+      "policy": "drop_newest",
+      "repeats": 3,
+      "conservation_closed_all": true,
+      "sender_errors": 0,
+      "latency.e2e_p95_ms": {
+        "median": 78.0,
+        "min": 78.0,
+        "max": 99.0
+      },
+      "latency.staleness_p95_ms": {
+        "median": 70.0,
+        "min": 68.0,
+        "max": 77.0
+      },
+      "latency.staleness_max_ms": {
+        "median": 74.0,
+        "min": 73.0,
+        "max": 138.0
+      },
+      "discard.frame_dropped": {
+        "median": 4459.0,
+        "min": 3972.0,
+        "max": 4580.0
+      },
+      "discard.dropped_age_ms_p95": {
+        "median": 16.0,
+        "min": 15.0,
+        "max": 20.0
+      },
+      "conservation.sent": 7845.0,
+      "conservation.udp_received": 7845.0,
+      "conservation.parsed": 7845.0,
+      "conservation.delivered_to_consumer": 2776.0,
+      "conservation.sequence_gaps": 0.0,
+      "discard.source_dropped": 0.0,
+      "discard.frame_occupancy": 0.0,
+      "discard.frame_block_timeout": 0.0,
+      "discard.frame_hard_cap": 0.0,
+      "latency.e2e_p50_ms": 63.0,
+      "latency.staleness_p50_ms": 44.0,
+      "latency.ingest_p95_ms": 2.0,
+      "frame.packets_per_frame": 15.86,
+      "conservation.udp_delivery_ratio": {
+        "median": 1.0,
+        "min": 1.0,
+        "max": 1.0
+      },
+      "throughput_mbps": 4.393
+    },
+    {
+      "policy": "block",
+      "repeats": 3,
+      "conservation_closed_all": true,
+      "sender_errors": 0,
+      "latency.e2e_p95_ms": {
+        "median": 7516.75,
+        "min": 6983.25,
+        "max": 7553.65
+      },
+      "latency.staleness_p95_ms": {
+        "median": 7494.7,
+        "min": 6956.25,
+        "max": 7513.05
+      },
+      "latency.staleness_max_ms": {
+        "median": 7724.0,
+        "min": 7179.0,
+        "max": 7768.0
+      },
+      "discard.frame_dropped": {
+        "median": 4004.0,
+        "min": 3937.0,
+        "max": 4168.0
+      },
+      "discard.dropped_age_ms_p95": {
+        "median": 7246.6,
+        "min": 6691.7,
+        "max": 7249.95
+      },
+      "conservation.sent": 8125.0,
+      "conservation.udp_received": 7769.0,
+      "conservation.parsed": 7769.0,
+      "conservation.delivered_to_consumer": 3168.0,
+      "conservation.sequence_gaps": 0.0,
+      "discard.source_dropped": 0.0,
+      "discard.frame_occupancy": 16.0,
+      "discard.frame_block_timeout": 4004.0,
+      "discard.frame_hard_cap": 0.0,
+      "latency.e2e_p50_ms": 4086.0,
+      "latency.staleness_p50_ms": 4067.0,
+      "latency.ingest_p95_ms": 2.0,
+      "frame.packets_per_frame": 16.0,
+      "conservation.udp_delivery_ratio": {
+        "median": 0.982,
+        "min": 0.9535,
+        "max": 1.0
+      },
+      "throughput_mbps": 4.351
+    },
+    {
+      "policy": "unbounded",
+      "repeats": 3,
+      "conservation_closed_all": true,
+      "sender_errors": 0,
+      "latency.e2e_p95_ms": {
+        "median": 76.0,
+        "min": 70.0,
+        "max": 77.0
+      },
+      "latency.staleness_p95_ms": {
+        "median": 24.0,
+        "min": 23.0,
+        "max": 25.0
+      },
+      "latency.staleness_max_ms": {
+        "median": 55.0,
+        "min": 53.0,
+        "max": 55.0
+      },
+      "discard.frame_dropped": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "discard.dropped_age_ms_p95": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "conservation.sent": 8130.0,
+      "conservation.udp_received": 8130.0,
+      "conservation.parsed": 8130.0,
+      "conservation.delivered_to_consumer": 7505.0,
+      "conservation.sequence_gaps": 0.0,
+      "discard.source_dropped": 0.0,
+      "discard.frame_occupancy": 0.0,
+      "discard.frame_block_timeout": 0.0,
+      "discard.frame_hard_cap": 0.0,
+      "latency.e2e_p50_ms": 45.0,
+      "latency.staleness_p50_ms": 19.0,
+      "latency.ingest_p95_ms": 2.0,
+      "frame.packets_per_frame": 42.64,
+      "conservation.udp_delivery_ratio": {
+        "median": 1.0,
+        "min": 1.0,
+        "max": 1.0
+      },
+      "throughput_mbps": 4.552
+    }
+  ]
+}
