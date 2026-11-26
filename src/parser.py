@@ -29,6 +29,7 @@ class ParserThread(threading.Thread):
         latency: LatencyMeter,
         stop_event: threading.Event,
         idle_wait: float = 0.002,
+        archive_audio: bool = True,
         daemon: bool = True,
     ) -> None:
         super().__init__(name="parser", daemon=daemon)
@@ -40,6 +41,11 @@ class ParserThread(threading.Thread):
         self.latency = latency
         self.stop_event = stop_event
         self.idle_wait = idle_wait
+        # Writing WAV segments from this thread puts file I/O on the parse
+        # path; on a busy host that stalls parsing by hundreds of milliseconds
+        # and makes the display buffer overflow in bursts.  Callers that are
+        # measuring the display path can disable archiving to isolate it.
+        self.archive_audio = archive_audio
         self._last_seq: Optional[int] = None
 
     def run(self) -> None:
@@ -81,7 +87,8 @@ class ParserThread(threading.Thread):
                 self.latency.add(item.received_ms - packet.timestamp_ms)
 
                 if packet.type is PacketType.AUDIO:
-                    self.audio_archive.append(packet)
+                    if self.archive_audio:
+                        self.audio_archive.append(packet)
                 else:
                     full = self.frame_buffer.push(packet)
                     if full:

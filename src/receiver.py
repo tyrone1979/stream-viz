@@ -22,6 +22,7 @@ class UdpReceiver(threading.Thread):
         counters: Counters,
         stop_event: threading.Event,
         recv_timeout: float = 0.2,
+        recv_buf_bytes: int = 0,
         daemon: bool = True,
     ) -> None:
         super().__init__(name="receiver", daemon=daemon)
@@ -31,12 +32,21 @@ class UdpReceiver(threading.Thread):
         self.counters = counters
         self.stop_event = stop_event
         self.recv_timeout = recv_timeout
+        self.recv_buf_bytes = recv_buf_bytes
         self._sock: Optional[socket.socket] = None
         self.first_ms: Optional[int] = None
         self.last_ms: Optional[int] = None
 
     def run(self) -> None:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        if self.recv_buf_bytes > 0:
+            # An intentionally small receive buffer is how an over-subscribed
+            # sender is made to lose datagrams at the kernel: a controlled
+            # experimental condition, not a defect.
+            try:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, self.recv_buf_bytes)
+            except OSError:
+                pass
         sock.settimeout(self.recv_timeout)
         sock.bind((self.host, self.port))
         self._sock = sock

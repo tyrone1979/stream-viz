@@ -66,6 +66,7 @@ class ReplaySpec:
     record: str = "100"             # legacy alias, ignored by the registry
     data_dir: Optional[Path] = None
     loop: bool = True
+    max_packets: int = 0            # 0 = pace by duration instead
 
 
 def average_packet_bytes(spec: ReplaySpec) -> float:
@@ -154,12 +155,16 @@ def send_record(
         while time.perf_counter() < deadline:
             if stop_event is not None and stop_event.is_set():
                 break
+            if spec.max_packets and sent >= spec.max_packets:
+                break
             frame_index = frames_used
             if not spec.loop and frame_index >= total_frames:
                 break
             frames_used += 1
             for buf in frames[frame_index % total_frames]:
                 if time.perf_counter() >= deadline:
+                    break
+                if spec.max_packets and sent >= spec.max_packets:
                     break
                 rewrite_header(buf, seq, now_ms())
                 if spec.malformed_ratio and rng.random() < spec.malformed_ratio:

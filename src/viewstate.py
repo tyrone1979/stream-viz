@@ -73,11 +73,23 @@ class ViewState:
         packets: Iterable,
         latency: Optional[LatencyMeter] = None,
         counters: Optional[Counters] = None,
+        staleness: Optional[LatencyMeter] = None,
     ) -> None:
-        """Fold one drained batch of packets into the rolling views."""
+        """Fold one drained batch of packets into the rolling views.
+
+        ``latency`` records every packet's own age, while ``staleness`` records
+        one sample per batch: the age of the *newest* packet that was actually
+        rendered.  The two answer different questions -- "how old is the
+        average sample" versus "how far behind live is this frame" -- and only
+        the second one exposes what drop-oldest buys.
+        """
+        packets = list(packets)
         with self._lock:
             display_ms = now_ms()
             had_packets = False
+            if packets and staleness is not None:
+                newest_ms = max(int(p.timestamp_ms) for p in packets)
+                staleness.add(display_ms - newest_ms)
             for pkt in packets:
                 had_packets = True
                 if latency is not None:

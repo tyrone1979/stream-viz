@@ -62,14 +62,18 @@ class GuiConsumer:
         history: int = 120,
         n_bins: int = 128,
         n_channels: int = 4,
+        staleness: Optional[LatencyMeter] = None,
+        consumer_delay_ms: float = 0.0,
     ) -> None:
         self.state = ViewState(history=history, n_bins=n_bins, n_channels=n_channels)
         self.frame_buffer = frame_buffer
         self.ready_signal = ready_signal
         self.counters = counters
         self.latency = latency
+        self.staleness = staleness
         self.stop_event = stop_event
         self.refresh_hz = max(1.0, refresh_hz)
+        self.consumer_delay_ms = max(0.0, consumer_delay_ms)
         self.snapshots: List[Path] = []
         self._thread = threading.Thread(
             target=self._run, name="gui-consumer", daemon=True
@@ -89,6 +93,8 @@ class GuiConsumer:
             history=cfg.history,
             n_bins=cfg.n_bins,
             n_channels=cfg.n_channels,
+            staleness=pipeline.staleness,
+            consumer_delay_ms=cfg.consumer_delay_ms,
         )
 
     @property
@@ -102,11 +108,20 @@ class GuiConsumer:
         self._thread.join(timeout)
 
     def _run(self) -> None:
-        while not self.stop_event.is_set():
-            self.ready_signal.wait(1.0 / self.refresh_hz)
-            packets = self.frame_buffer.drain()
-            if packets:
-                self.state.ingest(packets, self.latency, self.counters)
+        period = max(1.0 / self.refresh_hz, self.consumer_delay_ms / 1000.0)
+        try:
+            while not self.stop_event.is_set():
+                packets = self.frame_buffer.drain()
+                if packets:
+                    self.state.ingest(packets, self.latency, self.counters, self.staleness)
+                self.stop_event.wait(period)
+        finally:
+            # Same conservation rule as the headless consumer: residual packets
+            # were never displayed, so they are counted as shutdown drops
+            # instead of being folded into the latency statistics.
+            residual = self.frame_buffer.drain()
+            if residual:
+                self.counters.inc("dropped_at_shutdown", len(residual))
 
 
 def _render_png(arrays: Tuple[np.ndarray, ...], path: Path) -> Path:

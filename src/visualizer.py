@@ -37,6 +37,8 @@ class DrainThread(threading.Thread):
         latency: LatencyMeter,
         stop_event: threading.Event,
         refresh_hz: float = 30.0,
+        staleness: Optional[LatencyMeter] = None,
+        consumer_delay_ms: float = 0.0,
         daemon: bool = True,
     ) -> None:
         super().__init__(name="drain", daemon=daemon)
@@ -44,22 +46,43 @@ class DrainThread(threading.Thread):
         self.ready_signal = ready_signal
         self.counters = counters
         self.latency = latency
+        self.staleness = staleness
+        self.consumer_delay_ms = max(0.0, consumer_delay_ms)
         self.stop_event = stop_event
         self.refresh_hz = max(1.0, refresh_hz)
         self.frames_rendered = 0
         self.snapshots: List[Path] = []
 
+    def _consume(self, packets) -> bool:
+        if not packets:
+            return False
+        stamp = now_ms()
+        if self.staleness is not None:
+            newest = max(int(p.timestamp_ms) for p in packets)
+            self.staleness.add(stamp - newest)
+        for pkt in packets:
+            self.latency.add(stamp - pkt.timestamp_ms)
+        self.counters.inc("display_frames", len(packets))
+        self.frames_rendered += 1
+        return True
+
     def run(self) -> None:
-        while not self.stop_event.is_set():
-            self.ready_signal.wait(1.0 / self.refresh_hz)
-            packets = self.frame_buffer.drain()
-            if not packets:
-                continue
-            stamp = now_ms()
-            for pkt in packets:
-                self.latency.add(stamp - pkt.timestamp_ms)
-            self.counters.inc("display_frames", len(packets))
-            self.frames_rendered += 1
+        # Fixed-rate ticks, not a free-running loop.  When the buffer is
+        # over-subscribed the ready signal is set continuously; a consumer that
+        # re-checks immediately would spin and starve the parser of the GIL,
+        # which inflates latency instead of measuring it.
+        period = max(1.0 / self.refresh_hz, self.consumer_delay_ms / 1000.0)
+        try:
+            while not self.stop_event.is_set():
+                self._consume(self.frame_buffer.drain())
+                self.stop_event.wait(period)
+        finally:
+            # Packets still buffered at shutdown were never displayed.  Count
+            # them as a shutdown drop: that closes the conservation chain
+            # without letting their (very old) timestamps pollute percentiles.
+            residual = self.frame_buffer.drain()
+            if residual:
+                self.counters.inc("dropped_at_shutdown", len(residual))
 
 
 class DisplayThread(threading.Thread):
@@ -77,6 +100,8 @@ class DisplayThread(threading.Thread):
         output_dir: Optional[Path] = None,
         snapshot_every: int = 20,
         max_snapshots: int = 6,
+        staleness: Optional[LatencyMeter] = None,
+        consumer_delay_ms: float = 0.0,
         daemon: bool = True,
     ) -> None:
         super().__init__(name="display", daemon=daemon)
@@ -84,6 +109,7 @@ class DisplayThread(threading.Thread):
         self.ready_signal = ready_signal
         self.counters = counters
         self.latency = latency
+        self.staleness = staleness
         self.stop_event = stop_event
         self.refresh_hz = max(1.0, refresh_hz)
         self.history = history
@@ -92,6 +118,7 @@ class DisplayThread(threading.Thread):
         self.output_dir = Path(output_dir) if output_dir else None
         self.snapshot_every = snapshot_every
         self.max_snapshots = max_snapshots
+        self.consumer_delay_ms = max(0.0, consumer_delay_ms)
         self.snapshots: List[Path] = []
         self.state = ViewState(history=history, n_bins=n_bins, n_channels=n_channels)
         self._states: list = []
@@ -101,7 +128,12 @@ class DisplayThread(threading.Thread):
         return self.state.frames
 
     def _ingest(self, packets) -> None:
-        self.state.ingest(packets, self.latency, self.counters)
+        self.state.ingest(packets, self.latency, self.counters, self.staleness)
+
+    def _consume_tick(self) -> None:
+        packets = self.frame_buffer.drain()
+        if packets:
+            self._ingest(packets)
 
     def _capture(self) -> None:
         """Cheap copy of the current view state; no plotting in the hot loop."""
@@ -114,17 +146,21 @@ class DisplayThread(threading.Thread):
         # then rendered once on shutdown.  Disk/image encoding in the hot loop
         # would stall the consumer and overflow the display FIFO.
         tick = 0
+        period = max(1.0 / self.refresh_hz, self.consumer_delay_ms / 1000.0)
         try:
             while not self.stop_event.is_set():
-                self.ready_signal.wait(1.0 / self.refresh_hz)
-                packets = self.frame_buffer.drain()
-                if not packets:
-                    continue
-                self._ingest(packets)
+                self._consume_tick()
                 tick += 1
                 if self.snapshot_every and tick % self.snapshot_every == 0:
                     self._capture()
+                self.stop_event.wait(period)
         finally:
+            # Same rule as the drain consumer: residual packets were never
+            # rendered, so they are counted as shutdown drops rather than
+            # folded into the latency statistics.
+            residual = self.frame_buffer.drain()
+            if residual:
+                self.counters.inc("dropped_at_shutdown", len(residual))
             if not self._states:
                 self._capture()
             self._render_all()

@@ -23,10 +23,11 @@ from typing import Any, Callable, Dict, Optional
 
 import numpy as np
 
-from .buffers import BoundedFIFO, Datagram, Signal
+from .buffers import BoundedFIFO, Datagram, OverflowPolicy, Signal
 from .metrics import Counters, LatencyMeter
 from .parser import ParserThread
 from .player import AudioArchive, AudioPlayer, AudioSink
+from .protocol import now_ms
 from .receiver import UdpReceiver
 from .visualizer import DisplayThread, DrainThread
 
@@ -37,6 +38,10 @@ class PipelineConfig:
     port: int = 19000
     source_capacity: int = 4096
     frame_capacity: int = 64
+    overflow_policy: str = "drop_oldest"
+    recv_buf_bytes: int = 0          # 0 keeps the OS default (SO_RCVBUF)
+    consumer_delay_ms: float = 0.0   # injected per-tick cost of a real front-end
+    archive_audio: bool = True
     audio_block_samples: int = 4096
     sample_rate: int = 16_000
     refresh_hz: float = 30.0
@@ -60,10 +65,25 @@ class StreamPipeline:
         self.counters = Counters()
         self.ingest_latency = LatencyMeter()
         self.display_latency = LatencyMeter()
+        self.staleness = LatencyMeter()
         self.stop_event = threading.Event()
 
-        self.source_buffer: BoundedFIFO[Datagram] = BoundedFIFO(cfg.source_capacity)
-        self.frame_buffer: BoundedFIFO = BoundedFIFO(cfg.frame_capacity)
+        policy = OverflowPolicy(cfg.overflow_policy)
+        # The source buffer holds raw datagrams, so the only age available is
+        # queueing time since arrival.  The frame buffer holds decoded packets,
+        # so its age is the true staleness of the sample at discard time.
+        self.source_buffer: BoundedFIFO[Datagram] = BoundedFIFO(
+            cfg.source_capacity,
+            overflow_policy=policy,
+            age_fn=lambda d: max(0, now_ms() - d.received_ms),
+            stop_event=self.stop_event,
+        )
+        self.frame_buffer: BoundedFIFO = BoundedFIFO(
+            cfg.frame_capacity,
+            overflow_policy=policy,
+            age_fn=lambda p: max(0, now_ms() - p.timestamp_ms),
+            stop_event=self.stop_event,
+        )
         self.ready_signal = Signal()
         self.audio_archive = AudioArchive(
             cfg.output_dir / "audio",
@@ -75,11 +95,13 @@ class StreamPipeline:
         self.receiver = UdpReceiver(
             cfg.host, cfg.port, self.source_buffer, self.counters,
             self.stop_event, recv_timeout=cfg.recv_timeout,
+            recv_buf_bytes=cfg.recv_buf_bytes,
         )
         # parser records arrival latency, display records render latency
         self.parser = ParserThread(
             self.source_buffer, self.frame_buffer, self.audio_archive,
             self.ready_signal, self.counters, self.ingest_latency, self.stop_event,
+            archive_audio=cfg.archive_audio,
         )
         if display_factory is not None:
             # An interactive front-end supplies its own consumer.  It receives
@@ -93,8 +115,10 @@ class StreamPipeline:
                 ready_signal=self.ready_signal,
                 counters=self.counters,
                 latency=self.display_latency,
+                staleness=self.staleness,
                 stop_event=self.stop_event,
                 refresh_hz=cfg.refresh_hz,
+                consumer_delay_ms=cfg.consumer_delay_ms,
             )
             if cfg.enable_display:
                 consumer_kwargs.update(
@@ -138,6 +162,31 @@ class StreamPipeline:
         active_s = duration
         if self.receiver.first_ms is not None and self.receiver.last_ms is not None:
             active_s = max(0.0, (self.receiver.last_ms - self.receiver.first_ms) / 1000.0)
+
+        received = counters.get("udp_datagrams", 0)
+        parsed = counters.get("parsed_packets", 0)
+        # UDP has no delivery guarantee, so loss is attributed per stage
+        # instead of collapsed into one "delivery ratio" that hides where the
+        # data actually went.  `received -> parsed` is what this software can
+        # observe; `sent -> received` must be joined from the sender's own
+        # count, which the benchmark scripts do.
+        flow = {
+            "udp_received": received,
+            "parsed": parsed,
+            "parse_yield": round(parsed / received, 4) if received else 0.0,
+            "parsed_by_type": {
+                kind: counters.get(f"parsed_{kind}", 0)
+                for kind in ("spectrum", "waveform", "audio")
+            },
+            "delivered_to_consumer": counters.get("display_frames", 0),
+            "sequence_gaps": counters.get("sequence_gaps", 0),
+            "duplicate_or_reorder": counters.get("duplicate_or_reorder", 0),
+            "dropped_at_parse": {
+                name: value for name, value in counters.items()
+                if name.startswith("dropped_") and name != "dropped_at_shutdown"
+            },
+            "dropped_at_shutdown": counters.get("dropped_at_shutdown", 0),
+        }
         return {
             "duration_s": round(duration, 3),
             "active_receive_s": round(active_s, 3),
@@ -145,6 +194,13 @@ class StreamPipeline:
             "counters": counters,
             "ingest_latency_ms": self.ingest_latency.snapshot(),
             "end_to_end_latency_ms": self.display_latency.snapshot(),
+            "staleness_ms": self.staleness.snapshot(),
+            "overflow_policy": self.config.overflow_policy,
+            "buffers": {
+                "source": self.source_buffer.stats(),
+                "frame": self.frame_buffer.stats(),
+            },
+            "flow": flow,
             "audio_segments": len(self.audio_archive),
             "rendered_frames": self.display.frames_rendered,
             "snapshots": [str(p) for p in self.display.snapshots],
