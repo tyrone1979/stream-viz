@@ -618,6 +618,13 @@ control; `tools/desensitize_check.py` merges both lists, scans file contents
 *and* paths, and exits non-zero on a hit. Wire the check into CI before
 tagging a release.
 
+Authorship metadata is the one deliberate exception: `CITATION.cff` and
+`paper/frontmatter.md` name the authors and their affiliations, because a
+citation file that hides who wrote the software is worse than useless. The
+technical content stays domain-neutral — no acquisition geometry, no platform
+parameters, no deployment identifiers — so the exception is confined to the
+author block and cannot leak into a measurement or a figure.
+
 Directories excluded from the scan are `.git`, `.workbuddy`, `output`, `data`,
 `__pycache__` and virtual environments — **do not commit raw working material
 or downloaded third-party signal files**, and never publish anything extracted
@@ -666,15 +673,28 @@ reproducible, the field data is not redistributed.
 
 ## Before any public release
 
-1. Replace the copyright holder in `LICENSE` with the actual rights holder and
-   obtain the institution's written approval for releasing the code.
-2. Complete the institution's review procedure for external publication.
-3. Add a persistent repository URL, a released version tag, and a
-   reproducibility capsule. Include `tools/fetch_dataset.py` in the capsule
-   instructions and keep **both** DOI/citation statements and the GWOSC
-   acknowledgement in every figure caption derived from real-data figures.
+1. ~~Replace the copyright holder in `LICENSE`~~ — done: Fujin Huang and Lei
+   Zhao. A licence statement is not a publication approval; that review is the
+   authors' responsibility and is not tracked here.
+2. ~~Add a persistent repository URL and a released version tag~~ — the public
+   mirror is <https://github.com/tyrone1979/stream-viz>, tagged `v1.0.0`.
+3. Keep `tools/fetch_dataset.py` in any reproducibility capsule, and keep
+   **both** DOI/citation statements and the GWOSC acknowledgement in every
+   figure caption derived from real-data figures.
 4. Add at least one independent reuse case — an adapter written and run by
    someone outside the group is the cheapest credible form.
+
+## Citation
+
+`CITATION.cff` carries the author list, affiliations and version, so GitHub and
+Zenodo render a citation without anyone retyping it. Cite the tagged release
+rather than the branch:
+
+```
+Huang, F., & Zhao, L. (2026). StreamViz: an instrumented testbed for
+latency-freshness trade-offs in streaming visualisation (v1.0.0) [Computer
+software]. https://github.com/tyrone1979/stream-viz
+```
 
 ## License
 

@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+message: "If you use this software or the archived measurements, please cite it as below."
+title: "StreamViz: an instrumented testbed for latency-freshness trade-offs in streaming visualisation"
+abstract: >-
+  StreamViz measures what a real-time display does when the producer outruns the
+  renderer. The display buffer's admission policy is an experimental variable
+  (drop-oldest, drop-newest, block, unbounded); discards are attributed at each
+  pipeline stage under a four-stage conservation contract; and staleness is
+  defined as the age of the newest sample in a frame at the moment the frame
+  becomes visible. The repository ships the measurement harness, two domain
+  adapters over published recordings, a one-function adapter template, and the
+  archived outputs behind every reported number.
+type: software
+authors:
+  - family-names: Huang
+    given-names: Fujin
+    affiliation: "Dalian Scientific Test and Control Technology Institute, Dalian, China"
+  - family-names: Zhao
+    given-names: Lei
+    affiliation: "Research Institute, Dalian Neusoft University of Information, Dalian, China"
+version: 1.0.0
+date-released: "2026-11-26"
+license: MIT
+repository-code: "https://github.com/tyrone1979/stream-viz"
+keywords:
+  - real-time visualisation
+  - display buffer
+  - staleness
+  - latency measurement
+  - UDP streaming
+  - reproducible benchmark
