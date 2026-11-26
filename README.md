@@ -113,6 +113,25 @@ python tools/capture_gui.py --source gwosc --rate 4 \
 
 # pre-publication term scan
 python tools/desensitize_check.py
+
+# audit the archived measurements without re-running anything
+# (pure standard library: no NumPy, no data download, no network)
+python tools/verify_measurements.py
+
+# downstream outlier consumer: accuracy on annotated beats + alert delay
+# under two admission policies (writes measurements/anomaly_detection.json)
+python examples/run_anomaly_eval.py --part both --repeat 3
+```
+
+A closed book: if you only want to know whether a published number is
+trustworthy, clone into a temporary directory and run one command. It installs
+the two declared dependencies into a throwaway virtual environment, runs the
+tests and audits every archived measurement, using nothing from your working
+tree:
+
+```bash
+tools/reproducibility_check.sh                  # against the published tag
+tools/reproducibility_check.sh --repo . --ref HEAD   # against a local clone
 ```
 
 `numpy` and `matplotlib` are the only third-party dependencies. The GUI and
@@ -429,6 +448,13 @@ datasets, but the measurement contract around them. What it demonstrates is
 *capability* — two unrelated domains, 36 cells, every chain closed — not
 external adoption.
 
+If you run it on your own data, `.github/ISSUE_TEMPLATE/reuse-report.yml` asks
+for the four things that make a report useful: what the adapter took (one
+loader and one registry entry, or more), whether the conservation chain closed,
+how the four policies ordered on your signal, and what environment you used. A
+report saying the claim broke is more valuable than one saying it held.
+Nothing is cited or named without your say-so.
+
 ### Case 2 — a multi-sensor acoustic deployment under burst and outage
 
 A field deployment of a multi-sensor acoustic array is the opposite of a steady
@@ -483,6 +509,62 @@ during the run; note that this puts file I/O on the parse thread, which is why
 it is off in every timing run (see [Two engineering
 lessons](#two-engineering-lessons-worth-inheriting)).
 
+### Case 3 — a second consumer, and what it inherits
+
+A display is not the only thing that can subscribe to this pipeline. `src/anomaly.py`
+is a **downstream analysis consumer** — a deterministic, streaming outlier
+detector that flags abnormal heartbeats — included for one reason: it makes a
+property of the software measurable rather than rhetorical.
+
+```
+producer → source buffer → parser → frame FIFO → display consumer
+                                              ↘ downstream consumer
+```
+
+The detector has no learned parameters. It locates QRS complexes with an
+energy-derivative method, compares each RR interval to a robust running median,
+measures QRS width, and scores a beat as `prematurity × (1 + width_excess)`.
+The threshold is `1 − 0.80`: an RR interval 20 % below the running median, the
+lower bound of the conventional ectopic-beat rule, fixed before any label is
+read.
+
+```bash
+python examples/run_anomaly_eval.py --part both --repeat 3
+```
+
+Two things get measured, and the second is the point.
+
+**Accuracy** — on MIT-BIH record 100 (2273 annotated beats, 34 abnormal), at
+frame granularity, split by signal quality rather than averaged over it:
+
+| Segment | Frames | Abnormal frames | Precision | Recall | F1 |
+| --- | --- | --- | --- | --- | --- |
+| Whole record | 634 | 33 | 0.63 | 0.82 | **0.71** |
+| Clean head (first 25 min) | 535 | 26 | 0.75 | 0.92 | **0.83** |
+| Degraded tail (last 5 min) | 99 | 7 | 0.27 | 0.43 | **0.33** |
+
+Average precision is 0.44, so the feature space is separable but not cleanly;
+the tail row is the recording degrading, not the detector being tuned. This is
+a demonstration, not a contribution to arrhythmia detection — a specialised
+algorithm would do better.
+
+**Alert delay** — the age, at the moment the flag is raised, of the sample that
+triggered it. Same detector, same load (8 Mbit/s, 8-frame FIFO, 40 ms budget),
+only the policy differs:
+
+| Policy | Alerts per run | Alert delay p50 | Alert delay p95 |
+| --- | --- | --- | --- |
+| `drop_oldest` | 18–23 | **18 ms** | 41–44 ms |
+| `block` | 18–19 | **2527 ms** | 4770–4879 ms |
+
+Detection costs about 1.7 ms per frame. Everything else is the admission
+policy. Under drop-oldest an operator can be told within one frame of the
+event; under block the identical detector reports an event that is already
+2.5 s old — and a two-second-old alarm is a record, not an alarm.
+
+All six replay runs closed their conservation chain. The numbers are archived in
+`measurements/anomaly_detection.json`.
+
 ## Related work and positioning
 
 Real-time signal display is a crowded space; the question a reviewer will ask is
@@ -531,12 +613,14 @@ point of shipping the harness rather than a screenshot.
 | `src/open_dataset.py` | generic real-data UDP replay + compatibility re-exports |
 | `src/viewstate.py` | shared four-view state, colour scales, staleness, JSON encoding |
 | `src/visualizer.py` | timer-driven PNG renderer + renderer-free state-folding consumer |
+| `src/anomaly.py` | **downstream outlier consumer: streaming QRS detection + verdict** |
+| `src/annotations.py` | WFDB `.atr` decoder (numpy only), the ground truth for the above |
 | `src/gui.py` | GUI consumer, session control, localhost HTTP API |
 | `src/pipeline.py` | lifecycle, configuration, conservation report |
 | `webui/` | dashboard HTML, CSS and Canvas front-end |
-| `examples/` | ablation harness, extreme scenario, GUI launcher, demo, synthetic sweep, benchmark |
+| `examples/` | ablation harness, extreme scenario, anomaly evaluation, GUI launcher, demo, synthetic sweep, benchmark |
 | `tests/` | protocol / buffer / policy / scenario / adapter-contract / end-to-end / GUI / dataset-registry tests |
-| `tools/` | dataset download+verify, term scan, reproducible GUI capture |
+| `tools/` | dataset download+verify, term scan, reproducible GUI capture, **measurement audit**, **fresh-clone reproducibility check** |
 | `third_party_adapter_template.py` | **runnable new-domain adapter + `--check` contract validator** |
 
 ## Outputs
@@ -557,10 +641,15 @@ point of shipping the harness rather than a screenshot.
 - `output/demo_report.json` — synthetic demo counters and latency percentiles
 - `output/figures/gui_dashboard*.png` — GUI captures (synthetic / ECG / strain)
 - `output/benchmark/benchmark.json` — synthetic throughput/buffer sweep
-- `measurements/policy_ablation.json`, `measurements/extreme_scenario.json` —
+- `output/anomaly/anomaly_detection.json` — detection quality and alert delay,
+  promoted to `measurements/` after a run
+- `measurements/policy_ablation.json`, `measurements/extreme_scenario.json`,
+  `measurements/anomaly_detection.json` —
   **the archived measurements**: the exact rows behind every table and figure in
   the manuscript, committed so a clone can check the numbers without re-running
-  them. The manuscript itself and its figure-generation script are kept out of
+  them. `python tools/verify_measurements.py` re-derives every conservation
+  identity and summary statistic from these files using only the standard
+  library. The manuscript itself and its figure-generation script are kept out of
   this repository's public mirror; the figures are derived from these files
   alone, and their captions state the command that produced them.
 

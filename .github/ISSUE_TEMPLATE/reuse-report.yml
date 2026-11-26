@@ -1,0 +1,103 @@
+name: Reuse report
+description: You ran StreamViz on your own data. Tell us what happened.
+title: "[reuse] <your domain> on <your recording>"
+labels: ["reuse"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This template exists because "is it reusable?" is a question only you can
+        answer. Two things make a report useful even when it is negative:
+
+        - **One loader, one registry entry.** If it took more than that, the
+          extension claim is false and we want to know where it broke.
+        - **A closed conservation chain.** If `sent → received → parsed →
+          displayed` did not close, the numbers are not usable and that is the
+          most important finding in the report.
+
+        Nothing here is published or cited without your say-so.
+
+  - type: input
+    id: domain
+    attributes:
+      label: Domain
+      description: What kind of signal is it — seismology, acoustics, electrophysiology, machine telemetry, something else?
+      placeholder: "underwater acoustics"
+    validations:
+      required: true
+
+  - type: input
+    id: recording
+    attributes:
+      label: Recording
+      description: |
+        What you replayed. A DOI or a URL is ideal; "proprietary, N channels at
+        M Hz" is also fine — the point is the shape, not the data.
+      placeholder: "4-channel hydrophone array, 48 kHz, proprietary"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: adapter_effort
+    attributes:
+      label: How much did the adapter take?
+      options:
+        - One loader and one registry entry, as advertised
+        - One loader, but I had to touch something else (please say what)
+        - More than that — the claim needs revising
+    validations:
+      required: true
+
+  - type: textarea
+    id: adapter_notes
+    attributes:
+      label: What the adapter needed
+      description: |
+        Sample rate / channel assumptions that did not fit, preprocessing the
+        template did not anticipate, units that needed converting. This is the
+        part that improves the software.
+      placeholder: |
+        My samples are int16 in an HDF5 file; I decoded to float32 and used
+        display_scale(). The `--check` mode rejected my spec until I filled in
+        the DOI.
+
+  - type: dropdown
+    id: conservation
+    attributes:
+      label: Did the conservation chain close?
+      description: The harness asserts it per cell; report what it said.
+      options:
+        - Closed in every cell
+        - Closed in some cells, not others
+        - Did not close
+        - I did not check
+    validations:
+      required: true
+
+  - type: textarea
+    id: ordering
+    attributes:
+      label: Policy ordering on your data
+      description: |
+        The paper's claim is that the ordering of the four policies is a property
+        of the policy, not of the signal. Did it hold on yours? Numbers are
+        welcome; so is "the ordering inverted, here is why".
+      placeholder: |
+        drop_oldest 24 ms, drop_newest 88 ms, block 3.1 s, unbounded 22 ms —
+        same ordering as the paper.
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Python version, CPU, and how you installed (pip, conda, container).
+      placeholder: "Ubuntu 24.04, CPython 3.12, i7-1185G7, pip install -r requirements.txt"
+
+  - type: checkboxes
+    id: attribution
+    attributes:
+      label: Attribution
+      options:
+        - label: You may name this report as reuse evidence in the paper.
+        - label: You may quote the numbers, but not my name.
+        - label: Keep this private — I am reporting a problem, not a success.

@@ -1,0 +1,264 @@
+{
+  "generated_by": "examples/run_anomaly_eval.py",
+  "dataset": {
+    "key": "mitdb",
+    "label": "MIT-BIH ECG \u2014 real open data",
+    "domain": "Biomedical / electrophysiology",
+    "name": "MIT-BIH Arrhythmia Database",
+    "version": "1.0.0",
+    "publisher": "PhysioNet",
+    "license": "Open Data Commons Attribution License v1.0 (ODC-By 1.0)",
+    "doi": "10.13026/C2F305",
+    "url": "https://physionet.org/files/mitdb/1.0.0/",
+    "citation": "Moody GB, Mark RG. The impact of the MIT-BIH Arrhythmia Database. IEEE Engineering in Medicine and Biology Magazine. 2001;20(3):45-50.",
+    "acknowledgement": "Cite Moody & Mark (2001) and DOI 10.13026/C2F305 in any figure caption using this record.",
+    "physical_units": "mV (ECG lead potential)",
+    "preprocessing": "per-lead median removal and 99th-percentile amplitude scaling"
+  },
+  "detection": {
+    "dataset": "mitdb",
+    "record": "100",
+    "annotation_file": "data/mitdb/100.atr",
+    "annotation_sha256": "8d8a5349fb16638ebbf649f1779d12e96d91b736b2aafe59db43719ae583d471",
+    "lead": "MLII (channel 0)",
+    "window_samples": 1024,
+    "window_s": 2.844,
+    "sampling_rate_hz": 360,
+    "beat_annotations": 2273,
+    "beat_classes": {
+      "N": 2239,
+      "A": 33,
+      "V": 1
+    },
+    "abnormal_beats": 34,
+    "threshold": 0.2,
+    "threshold_basis": "1 - PREMATURE_RATIO; RR 20% below the running median, the lower bound of the ectopic-beat rule. Chosen before any label is read; not tuned.",
+    "whole_record": {
+      "windows": 634,
+      "tp": 27,
+      "fp": 16,
+      "fn": 6,
+      "tn": 585,
+      "precision": 0.6279,
+      "recall": 0.8182,
+      "f1": 0.7105,
+      "abnormal_frames": 33,
+      "pr_auc": 0.4403,
+      "specificity": 0.9734,
+      "prevalence": 0.0521
+    },
+    "clean_head": {
+      "windows": 535,
+      "tp": 24,
+      "fp": 8,
+      "fn": 2,
+      "tn": 501,
+      "precision": 0.75,
+      "recall": 0.9231,
+      "f1": 0.8276,
+      "abnormal_frames": 26
+    },
+    "degraded_tail": {
+      "windows": 99,
+      "tp": 3,
+      "fp": 8,
+      "fn": 4,
+      "tn": 84,
+      "precision": 0.2727,
+      "recall": 0.4286,
+      "f1": 0.3333,
+      "abnormal_frames": 7
+    },
+    "qrs_localisation": {
+      "detected": 2283,
+      "reference": 2273,
+      "matched": 1909,
+      "recall": 0.8399,
+      "precision": 0.8362,
+      "tolerance_ms": 150.0,
+      "note": "localisation degrades in the last ~280 s of the record, where the QRS detector also emits 366 spurious complexes; no abnormal beat in that segment is lost at frame level beyond what the tail row reports."
+    },
+    "detection_cost_ms": {
+      "p50": 0.535,
+      "p95": 0.629,
+      "max": 1.139
+    },
+    "windows_evaluated": 634
+  },
+  "replay": [
+    {
+      "policy": "drop_oldest",
+      "target_rate_mbps": 8.0,
+      "frame_capacity": 8,
+      "consumer_budget_ms": 40.0,
+      "sender_error": null,
+      "conservation_closed": true,
+      "conservation": {
+        "sent": 7110,
+        "udp_received": 7110,
+        "parsed": 7110,
+        "displayed": 2131,
+        "fifo_dropped": 1425
+      },
+      "staleness_p95_ms": 21.0,
+      "windows_observed": 533,
+      "alerts": 20,
+      "alert_delay_ms": {
+        "p50": 18.0,
+        "p95": 44.0,
+        "max": 44.0
+      },
+      "detector_cost_ms": {
+        "p50": 1.289,
+        "p95": 1.715,
+        "max": 2.032
+      },
+      "detection_share_of_delay": 0.0716
+    },
+    {
+      "policy": "drop_oldest",
+      "target_rate_mbps": 8.0,
+      "frame_capacity": 8,
+      "consumer_budget_ms": 40.0,
+      "sender_error": null,
+      "conservation_closed": true,
+      "conservation": {
+        "sent": 7110,
+        "udp_received": 7110,
+        "parsed": 7110,
+        "displayed": 2128,
+        "fifo_dropped": 1428
+      },
+      "staleness_p95_ms": 21.0,
+      "windows_observed": 532,
+      "alerts": 18,
+      "alert_delay_ms": {
+        "p50": 23.0,
+        "p95": 40.0,
+        "max": 40.0
+      },
+      "detector_cost_ms": {
+        "p50": 1.793,
+        "p95": 2.583,
+        "max": 4.994
+      },
+      "detection_share_of_delay": 0.078
+    },
+    {
+      "policy": "drop_oldest",
+      "target_rate_mbps": 8.0,
+      "frame_capacity": 8,
+      "consumer_budget_ms": 40.0,
+      "sender_error": null,
+      "conservation_closed": true,
+      "conservation": {
+        "sent": 7110,
+        "udp_received": 7110,
+        "parsed": 7110,
+        "displayed": 2136,
+        "fifo_dropped": 1420
+      },
+      "staleness_p95_ms": 20.0,
+      "windows_observed": 534,
+      "alerts": 23,
+      "alert_delay_ms": {
+        "p50": 12.0,
+        "p95": 41.0,
+        "max": 42.0
+      },
+      "detector_cost_ms": {
+        "p50": 1.765,
+        "p95": 2.685,
+        "max": 4.016
+      },
+      "detection_share_of_delay": 0.1471
+    },
+    {
+      "policy": "block",
+      "target_rate_mbps": 8.0,
+      "frame_capacity": 8,
+      "consumer_budget_ms": 40.0,
+      "sender_error": null,
+      "conservation_closed": true,
+      "conservation": {
+        "sent": 7110,
+        "udp_received": 7110,
+        "parsed": 7110,
+        "displayed": 2132,
+        "fifo_dropped": 1408
+      },
+      "staleness_p95_ms": 4581.3,
+      "windows_observed": 533,
+      "alerts": 18,
+      "alert_delay_ms": {
+        "p50": 2514.0,
+        "p95": 4770.0,
+        "max": 4770.0
+      },
+      "detector_cost_ms": {
+        "p50": 1.573,
+        "p95": 2.412,
+        "max": 9.178
+      },
+      "detection_share_of_delay": 0.0006
+    },
+    {
+      "policy": "block",
+      "target_rate_mbps": 8.0,
+      "frame_capacity": 8,
+      "consumer_budget_ms": 40.0,
+      "sender_error": null,
+      "conservation_closed": true,
+      "conservation": {
+        "sent": 7110,
+        "udp_received": 7110,
+        "parsed": 7110,
+        "displayed": 2134,
+        "fifo_dropped": 1406
+      },
+      "staleness_p95_ms": 4595.6,
+      "windows_observed": 534,
+      "alerts": 19,
+      "alert_delay_ms": {
+        "p50": 2527.0,
+        "p95": 4834.0,
+        "max": 4834.0
+      },
+      "detector_cost_ms": {
+        "p50": 1.32,
+        "p95": 1.867,
+        "max": 3.515
+      },
+      "detection_share_of_delay": 0.0005
+    },
+    {
+      "policy": "block",
+      "target_rate_mbps": 8.0,
+      "frame_capacity": 8,
+      "consumer_budget_ms": 40.0,
+      "sender_error": null,
+      "conservation_closed": true,
+      "conservation": {
+        "sent": 7110,
+        "udp_received": 7110,
+        "parsed": 7110,
+        "displayed": 2118,
+        "fifo_dropped": 1422
+      },
+      "staleness_p95_ms": 4691.8,
+      "windows_observed": 530,
+      "alerts": 18,
+      "alert_delay_ms": {
+        "p50": 2636.0,
+        "p95": 4879.0,
+        "max": 4879.0
+      },
+      "detector_cost_ms": {
+        "p50": 2.151,
+        "p95": 9.131,
+        "max": 25.938
+      },
+      "detection_share_of_delay": 0.0008
+    }
+  ]
+}
