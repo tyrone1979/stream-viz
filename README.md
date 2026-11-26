@@ -557,6 +557,10 @@ point of shipping the harness rather than a screenshot.
 - `output/demo_report.json` — synthetic demo counters and latency percentiles
 - `output/figures/gui_dashboard*.png` — GUI captures (synthetic / ECG / strain)
 - `output/benchmark/benchmark.json` — synthetic throughput/buffer sweep
+- `paper/figures/fig{2,3,4,5}_*.png` — **the manuscript figures**, regenerated
+  from the JSON above by `python examples/make_figures.py`; no figure is a
+  hand-edited screenshot except Fig. 4, which `tools/capture_gui.py` captures
+  headlessly
 
 ## Reference measurements (delivery path)
 
