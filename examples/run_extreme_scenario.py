@@ -43,6 +43,66 @@ def _ratio(num: int, den: int) -> float:
     return round(num / den, 4) if den else 0.0
 
 
+def _median(values: list[float]) -> float:
+    ordered = sorted(values)
+    if not ordered:
+        return 0.0
+    mid = len(ordered) // 2
+    if len(ordered) % 2:
+        return round(float(ordered[mid]), 3)
+    return round((ordered[mid - 1] + ordered[mid]) / 2.0, 3)
+
+
+# A single scheduler hiccup can move a p95 by an order of magnitude on a shared
+# machine, so every reported latency carries the observed range next to the
+# median instead of pretending one run is the answer.
+_SPREAD_FIELDS = (
+    ("latency", "e2e_p95_ms"),
+    ("latency", "staleness_p95_ms"),
+    ("latency", "staleness_max_ms"),
+    ("discard", "frame_dropped"),
+    ("discard", "dropped_age_ms_p95"),
+)
+
+
+def _aggregate(runs: list[dict]) -> dict:
+    """Median-of-N summary for one (policy) cell of the scenario sweep."""
+    first = runs[0]
+    cell = {
+        "policy": first["policy"],
+        "repeats": len(runs),
+        "conservation_closed_all": all(
+            r["conservation"]["conservation_closed"] for r in runs
+        ),
+        "sender_errors": sum(1 for r in runs if r["sender_error"]),
+    }
+    for section, metric in _SPREAD_FIELDS:
+        values = [float(r[section][metric]) for r in runs]
+        cell[f"{section}.{metric}"] = {
+            "median": _median(values),
+            "min": round(min(values), 3),
+            "max": round(max(values), 3),
+        }
+    for section, keys in (
+        ("conservation", ("sent", "udp_received", "parsed",
+                          "delivered_to_consumer", "sequence_gaps")),
+        ("discard", ("source_dropped", "frame_occupancy",
+                     "frame_block_timeout", "frame_hard_cap")),
+        ("latency", ("e2e_p50_ms", "staleness_p50_ms", "ingest_p95_ms")),
+        ("frame", ("packets_per_frame",)),
+    ):
+        for key in keys:
+            cell[f"{section}.{key}"] = _median(
+                [float(r[section][key]) for r in runs]
+            )
+    ratios = [r["conservation"]["udp_delivery_ratio"] for r in runs]
+    cell["conservation.udp_delivery_ratio"] = {
+        "median": _median(ratios), "min": min(ratios), "max": max(ratios),
+    }
+    cell["throughput_mbps"] = _median([float(r["throughput_mbps"]) for r in runs])
+    return cell
+
+
 def _one_run(args, policy: str, output_dir: Path, port: int) -> dict:
     cfg = PipelineConfig(
         port=port,
@@ -143,6 +203,8 @@ def _one_run(args, policy: str, output_dir: Path, port: int) -> dict:
             "rounds": rounds,
             "packets_per_frame": round(
                 flow["delivered_to_consumer"] / rounds, 2) if rounds else 0.0,
+            "mean_interval_ms": round(
+                args.duration * 1000.0 / rounds, 2) if rounds else 0.0,
         },
         "throughput_mbps": report["throughput_mbps"],
         "audio_segments": report["audio_segments"],
@@ -174,39 +236,73 @@ def main() -> int:
                         help="archive WAV segments (adds file I/O to the parse "
                              "path, so timing numbers are no longer clean)")
     parser.add_argument("--snapshot-every", type=int, default=25)
+    parser.add_argument("--repeat", type=int, default=3,
+                        help="runs per policy; the summary reports the median "
+                             "and observed range (single runs are not enough on "
+                             "a shared machine)")
     parser.add_argument("--port", type=int, default=19500)
     parser.add_argument("--output", default="output/scenario")
     args = parser.parse_args()
 
     policies = ([p.strip() for p in args.policies.split(",") if p.strip()]
                 or [args.policy])
+    repeats = max(1, args.repeat)
     root = Path(args.output)
     root.mkdir(parents=True, exist_ok=True)
 
     runs = []
+    summary = []
     port = args.port
     print(f"Scenario: {args.sensors} sensors, base {args.rate} Mbit/s, "
           f"burst x{args.burst_gain} for {args.burst}s, outage {args.outage}s "
-          f"every {args.cycle}s | buffer {args.capacity} | synthetic payloads")
+          f"every {args.cycle}s | buffer {args.capacity} | synthetic payloads | "
+          f"repeats {repeats}")
     for policy in policies:
-        out = root / policy
-        out.mkdir(parents=True, exist_ok=True)
-        run = _one_run(args, policy, out, port)
-        port += 1
-        runs.append(run)
-        if run["sender_error"]:
-            print(f"  {policy:<12} SENDER ERROR: {run['sender_error']}")
-            continue
-        c, d, lat = run["conservation"], run["discard"], run["latency"]
-        print(
-            f"  {policy:<12} sent {c['sent']:>5d} recv {c['udp_received']:>5d} "
-            f"parsed {c['parsed']:>5d} | drop src {d['source_dropped']:>4d} "
-            f"frm {d['frame_dropped']:>4d} | stale p50/p95/max "
-            f"{lat['staleness_p50_ms']:>7.1f}/{lat['staleness_p95_ms']:>7.1f}/"
-            f"{lat['staleness_max_ms']:>7.1f} ms | pkt/frame "
-            f"{run['frame']['packets_per_frame']:>5.1f} | "
-            f"chain {'ok' if c['conservation_closed'] else 'BROKEN'}"
-        )
+        cell_runs = []
+        for rep in range(repeats):
+            out = root / policy / f"rep{rep + 1}"
+            out.mkdir(parents=True, exist_ok=True)
+            run = _one_run(args, policy, out, port)
+            port += 1
+            run["repeat_index"] = rep + 1
+            runs.append(run)
+            cell_runs.append(run)
+            if run["sender_error"]:
+                print(f"  {policy:<12} rep{rep + 1} SENDER ERROR: "
+                      f"{run['sender_error']}")
+                continue
+            lat = run["latency"]
+            if repeats > 1:
+                print(f"  {policy:<12} rep{rep + 1} stale p95 "
+                      f"{lat['staleness_p95_ms']:>8.1f} ms | max "
+                      f"{lat['staleness_max_ms']:>8.1f} ms | frm drop "
+                      f"{run['discard']['frame_dropped']:>5d}")
+        cell = _aggregate(cell_runs)
+        summary.append(cell)
+        if repeats == 1:
+            c, d, lat = cell_runs[0]["conservation"], cell_runs[0]["discard"], cell_runs[0]["latency"]
+            print(
+                f"  {policy:<12} sent {c['sent']:>5d} recv {c['udp_received']:>5d} "
+                f"parsed {c['parsed']:>5d} | drop src {d['source_dropped']:>4d} "
+                f"frm {d['frame_dropped']:>4d} | stale p50/p95/max "
+                f"{lat['staleness_p50_ms']:>7.1f}/{lat['staleness_p95_ms']:>7.1f}/"
+                f"{lat['staleness_max_ms']:>7.1f} ms | pkt/frame "
+                f"{cell_runs[0]['frame']['packets_per_frame']:>5.1f} | "
+                f"chain {'ok' if c['conservation_closed'] else 'BROKEN'}"
+            )
+        else:
+            stale = cell["latency.staleness_p95_ms"]
+            smax = cell["latency.staleness_max_ms"]
+            dropped = cell["discard.frame_dropped"]
+            print(
+                f"  {policy:<12} median of {repeats} | stale p95 "
+                f"{stale['median']:>8.1f} ms [{stale['min']:.1f}-{stale['max']:.1f}] "
+                f"| max {smax['median']:>8.1f} ms | frm drop "
+                f"{dropped['median']:>5.0f} "
+                f"[{dropped['min']:.0f}-{dropped['max']:.0f}] | "
+                f"pkt/frame {cell['frame.packets_per_frame']:>5.1f} | "
+                f"chain {'ok' if cell['conservation_closed_all'] else 'BROKEN'}"
+            )
 
     payload = {
         "scenario": {
@@ -225,8 +321,15 @@ def main() -> int:
             "frame_capacity": args.capacity,
             "display_refresh_hz": args.refresh,
             "seconds_per_run": args.duration,
+            "repeats": repeats,
+            "note": (
+                "A single run on a shared machine can move a p95 by an order of "
+                "magnitude; use summary[] (median + observed range) rather than "
+                "any single row of runs[]."
+            ),
         },
         "runs": runs,
+        "summary": summary,
     }
     path = root / "extreme_scenario.json"
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")

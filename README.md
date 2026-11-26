@@ -84,10 +84,11 @@ python examples/run_policy_ablation.py --dataset all \
     --rates 8 --consumer-delays 20,40,80 --repeat 3 \
     --packets 3000 --capacity 8 --output output/policy_ablation
 
-# extreme-condition scenario: bursty multi-sensor array with link outages
+# extreme-condition scenario: bursty multi-sensor array with link outages,
+# median of 3 (a bursty profile has more run-to-run spread than a steady one)
 python examples/run_extreme_scenario.py \
     --policies drop_oldest,drop_newest,block,unbounded \
-    --capacity 16 --duration 12 --output output/scenario
+    --capacity 16 --duration 12 --repeat 3 --output output/scenario
 
 # interactive dashboard at http://127.0.0.1:8765/
 python examples/run_gui.py                        # synthetic smoke test
@@ -427,27 +428,30 @@ environment, and it must not be cited as measured data.
 ```bash
 python examples/run_extreme_scenario.py \
     --policies drop_oldest,drop_newest,block,unbounded \
-    --capacity 16 --duration 12 --rate 3 \
+    --capacity 16 --duration 12 --rate 3 --repeat 3 \
     --sensors 6 --cycle 3 --burst 0.9 --outage 0.4 --burst-gain 3 \
     --output output/scenario
 ```
 
 Load: 6 sensors, 3 Mbit/s base, ×3 burst for 0.9 s and a 0.4 s outage every
-3 s; display buffer 16 frames at 20 Hz. Single run per policy — illustrative,
-not a median:
+3 s; display buffer 16 frames at 20 Hz. Median of three runs, with the observed
+range in brackets — a bursty profile has more run-to-run spread than a steady
+one, and a single run would over-state the precision:
 
-| Policy | Staleness p50 / p95 / max (ms) | Frame drops | Packets per frame |
-| --- | --- | --- | --- |
-| `drop_oldest` | 18.0 / 21.0 / 53.0 | 4695 | 15.9 |
-| `drop_newest` | 42.0 / 67.2 / 84.0 | 4698 | 15.9 |
-| `block` | 4054.0 / 7487.2 / 7712.0 | 4267 | 16.0 |
-| `unbounded` | 20.0 / 28.3 / 54.0 | 0 | 41.4 |
+| Policy | Staleness p95 (ms) | Staleness max (ms) | Frame drops | Packets per frame |
+| --- | --- | --- | --- | --- |
+| `drop_oldest` | **33.0** [27–40] | 60.0 | 4270 | 15.8 |
+| `drop_newest` | **70.0** [68–77] | 74.0 | 4459 | 15.9 |
+| `block` | **7494.7** [6956–7513] | 7724.0 | 4004 | 16.0 |
+| `unbounded` | **24.0** [23–25] | 55.0 | 0 | 42.6 |
 
-All four closed their conservation chain (`sent = 8120±10`, `received =
+All twelve runs closed their conservation chain (`sent ≈ 8120`, `received =
 parsed`, `sequence_gaps = 0`). The burst amplifies the steady-load result:
-`block` reaches 7.5 s — longer than the burst itself — while discarding
-almost as much as `drop_oldest`; `unbounded` keeps everything and pays with 41
-packets folded per frame instead of 16.
+`drop_newest` discards *more* than `drop_oldest` (4459 vs 4270) yet shows data
+2.1× older; `block` reaches 7.5 s — longer than the burst itself — while
+discarding almost as much as `drop_oldest`, so back-pressure bought nothing;
+`unbounded` keeps everything and pays with 42.6 packets folded per frame
+instead of 16.
 
 The audio path is the same one the GUI exposes: audification of the sensor
 content into 16 kHz WAV segments, live playback of the newest segment, and
@@ -460,25 +464,34 @@ lessons](#two-engineering-lessons-worth-inheriting)).
 
 Real-time signal display is a crowded space; the question a reviewer will ask is
 *why not use one of these*. The honest answer is that they solve a different
-problem, and the difference is not speed.
+problem, and the difference is not speed. Licences and versions below were
+checked against project sources in November 2026; the claims in the last column
+are deliberately narrow, because a wrong claim about a well-known tool is worse
+than no comparison at all.
 
-| Family | Examples | What they give you | Why it does not answer this question |
+| Family | Representative tools (licence, version) | What they give you | What they do not give you |
 | --- | --- | --- | --- |
-| Desktop stream plotters | PlotJuggler, glScopeClient | interactive inspection of live numeric streams, plugin data sources | the buffer's admission behaviour is internal and fixed; there is no per-stage discard accounting or staleness meter to compare policies with |
-| Dashboard stacks | Grafana over a time-series database | operational dashboards, alerting, retention | latency is dominated by the scrape/aggregation interval, and the display buffer is not a first-class object |
-| SDR / DSP flowgraphs | GNU Radio Companion, inspectrum | spectrum and waterfall views tightly coupled to a radio flowgraph | domain-bound by construction; the visualisation is part of the DSP toolchain, not an independent measurement instrument |
-| Dashboard libraries | Bokeh, Dash, Streamlit | rendering and layout primitives | provide the drawing layer only; the pipeline, its buffering and its metering are left to the user |
-| Robotics visualisers | ROS RViz | QoS-aware visualisation of robot topics | domain-bound, and QoS is a transport property rather than a display-admission policy |
-| Stream-processing benchmarks | Flink / Storm latency harnesses | throughput and end-to-end latency under load | measure the processing path, not the freshness of what a human actually sees |
+| Desktop stream plotters | **PlotJuggler** 4.1.0 / 3.17.2 (MPL-2.0); **glScopeClient** (BSD-3, self-described alpha) | drag-and-drop plotting of live streams (MQTT, WebSocket, ZeroMQ, UDP, ROS topics) and recordings, with transform chains | the display buffer is an implementation detail, not a controllable object: no switchable admission policy, no per-stage discard attribution, no meter for the age of what is on screen. glScopeClient is bound to instrument transports (SCPI) rather than to an arbitrary packet stream |
+| Robotics / ML log tooling | **Rerun** (MIT / Apache-2.0, SDK-first); **Foxglove** (current application commercial; Studio 1.x was open source) | multimodal logging and inspection, MCAP ecosystem, hosted collaboration | both assume you instrument the *producer* with their SDK or log format; neither treats the consumer's buffer as an experimental variable, and neither reports the freshness of a rendered frame |
+| Dashboard stacks | **Grafana** (AGPL-3.0) over a time-series database | operational dashboards, alerting, retention | latency is dominated by the scrape or aggregation interval; the display-side buffer is not a first-class object |
+| Dashboard libraries | **Bokeh** (BSD-3), **Dash** (MIT), **Streamlit** (Apache-2.0) | rendering and layout primitives | the drawing layer only; the pipeline, its buffering and its metering are left to the user |
+| SDR / DSP flowgraphs | **GNU Radio** 3.x (GPL-3.0; the GR4 runtime is MIT) incl. its QT FFT/waterfall sinks; **inspectrum** 0.4.0 (GPL-3.0-or-later) | spectrum and waterfall views inside a signal-processing flowgraph; inspectrum is an offline analyser for large IQ captures | the visualisation is a sink inside the DSP toolchain and carries radio/IQ semantics; neither is a domain-agnostic replay harness, and neither measures display-side staleness |
+| Robotics visualisers | **RViz2** (BSD-3) | topic visualisation with QoS settings | QoS is a *transport* property (reliability, history depth), not a display-admission policy; it does not tell you how old the rendered data is |
+| Passive acoustic monitoring | **PAMGuard** 2.02.18 (GPL-3.0); **Triton** (MATLAB, freely distributed, last packaged 2016); **Ishmael** (Windows freeware, MATLAB plug-in interface); **Raven Pro** (proprietary, paid per machine) | the closest neighbours to the multi-sensor acoustic case: real-time acquisition, spectrograms, detectors, classifiers, event databases | they are domain instruments — the product is detection and classification, not the transport/display contract. PAMGuard does surface acquisition-level overruns, so the difference is *not* that it hides loss: loss is simply not attributed through a `sent → received → parsed → displayed` chain, and cannot be traded against freshness by switching a policy |
+| Biosignal toolkits | **BrainFlow** 5.23.0 (MIT) + **OpenBCI GUI** (MIT) | a uniform acquisition SDK across boards, plus a device-bound GUI with real-time filtering | a library and a device dashboard, not a measurement harness: ring buffers are internal and the GUI is tied to one vendor's hardware |
+| Stream-processing benchmarks | **Yahoo! Streaming Benchmark**, **NEXMark** (Flink / Storm) | throughput and end-to-end latency of the processing path under load | they measure the processing path, not the freshness of what a human is looking at after the display buffer has dropped data |
 
 The gap StreamViz targets is narrow and specific: **a harness in which the
 buffer admission policy is the independent variable, the discards are attributed
 per stage, and staleness is defined at frame visibility** — while staying
-domain-agnostic through a one-function adapter. We do not claim that no tool
-does part of this; we claim that the combination is what makes the
-drop-oldest/drop-newest/block/unbounded comparison reproducible by someone else
-on their own data. If a closer tool exists, the adapter interface makes an
-honest head-to-head comparison cheap to run.
+domain-agnostic through a one-function adapter.
+
+Two things we deliberately do **not** claim: that no tool does any part of this
+(PlotJuggler plots faster than we do, PAMGuard has detectors we will never
+have), and that the comparison above is a benchmark. It is a positioning
+argument from documented capabilities. If a closer tool exists, the adapter
+interface makes an honest head-to-head comparison cheap to run — which is the
+point of shipping the harness rather than a screenshot.
 
 ## Package layout
 
@@ -506,10 +519,11 @@ honest head-to-head comparison cheap to run.
 
 - `output/policy_ablation/policy_ablation.json` — **the ablation**: per-run
   rows, median-of-N `summary` cells with observed ranges, workload description
-- `output/scenario/extreme_scenario.json` — **burst/outage scenario**: per-stage
+- `output/scenario/extreme_scenario.json` — **burst/outage scenario**: per-run
+  rows, median-of-N `summary` cells with observed ranges, per-stage
   conservation, staleness distribution, packets per frame, `data_status`
-- `output/scenario/<policy>/figures/view_*.png` — four views captured from the
-  scenario's synthetic payloads
+- `output/scenario/<policy>/rep<N>/figures/view_*.png` — four views captured
+  from the scenario's synthetic payloads
 - `output/cross_domain/cross_domain_summary.json` — two-domain delivery and
   latency index
 - `output/cross_domain/<key>/real_benchmark.json` — per-dataset measurements,
