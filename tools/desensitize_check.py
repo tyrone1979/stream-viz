@@ -43,6 +43,54 @@ def load_terms() -> list[str]:
     return sorted(set(terms))
 
 
+_NUMBER_CHARS = set("0123456789.eE+-")
+
+
+def is_json_number_value(line: str, start: int, end: int) -> bool:
+    """True when ``line[start:end]`` is a number literal in a JSON value slot.
+
+    A purely numeric blocked term (an institute number, a hull number) is a
+    substring of ordinary measurements as soon as the repository ships a
+    results file: ``"min": 4711.0`` and ``"frame_dropped": 4711`` both contain
+    ``4711`` without naming anything.  Treating those as hits makes the scan
+    unusable exactly when it starts to matter, so a match is ignored only when
+    it sits in a well-formed number in value position.  A quoted string
+    (``"4711"``) or a term followed by Chinese text (``4711所``) is still
+    reported, because those *are* identifiers.
+    """
+    token = line[start:end]
+    if not token.isdigit():
+        return False
+    i, j = start, end
+    while i > 0 and line[i - 1] in _NUMBER_CHARS:
+        i -= 1
+    while j < len(line) and line[j] in _NUMBER_CHARS:
+        j += 1
+    try:
+        float(line[i:j])
+    except ValueError:
+        return False
+    prefix = line[:i].rstrip()
+    if not prefix or prefix[-1] not in ":[,":
+        return False
+    suffix = line[j:].lstrip()
+    return not suffix or suffix[0] in ",}]"
+
+
+def find_term(line: str, term: str) -> int | None:
+    """First index of ``term`` in ``line`` that is not a JSON number literal."""
+    start = 0
+    lowered = line.lower()
+    needle = term.lower()
+    while True:
+        at = lowered.find(needle, start)
+        if at < 0:
+            return None
+        if not (needle.isdigit() and is_json_number_value(line, at, at + len(needle))):
+            return at
+        start = at + len(needle)
+
+
 def iter_files():
     for path in sorted(ROOT.rglob("*")):
         if not path.is_file():
@@ -74,9 +122,8 @@ def main() -> int:
             continue
         scanned += 1
         for lineno, line in enumerate(text.splitlines(), 1):
-            lowered = line.lower()
             for term in terms:
-                if term.lower() in lowered:
+                if find_term(line, term) is not None:
                     findings.append(f"TEXT  {rel}:{lineno}  ->  {term!r}")
                     break
 
