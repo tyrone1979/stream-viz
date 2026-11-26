@@ -8,8 +8,11 @@ abstract: >-
   pipeline stage under a four-stage conservation contract; and staleness is
   defined as the age of the newest sample in a frame at the moment the frame
   becomes visible. The repository ships the measurement harness, two domain
-  adapters over published recordings, a one-function adapter template, and the
-  archived outputs behind every reported number.
+  adapters over published recordings, a one-function adapter template, a
+  downstream analysis consumer that shows what a second subscriber inherits
+  from the policy, an audit tool that re-derives every published conservation
+  identity from the archived JSON, and the archived outputs behind every
+  reported number.
 type: software
 authors:
   - family-names: Huang
@@ -18,7 +21,7 @@ authors:
   - family-names: Zhao
     given-names: Lei
     affiliation: "Research Institute, Dalian Neusoft University of Information, Dalian, China"
-version: 1.0.0
+version: 1.1.0
 date-released: "2026-11-26"
 license: MIT
 repository-code: "https://github.com/tyrone1979/stream-viz"

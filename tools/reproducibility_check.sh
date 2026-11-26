@@ -40,9 +40,14 @@ WORK="$(mktemp -d)" || { echo "cannot create a temporary directory" >&2; exit 1;
 cleanup() {
   if [ "$KEEP" -eq 1 ]; then
     echo "sandbox kept at $WORK"
-  else
-    rm -rf "$WORK"
+    return 0
   fi
+  # Use shutil rather than rm: on Git Bash for Windows $WORK comes back as a
+  # drive-prefixed path that the shell's rm refuses to touch.
+  "$PYTHON" - "$WORK" <<'PY' 2>/dev/null || echo "note: could not remove $WORK"
+import shutil, sys
+shutil.rmtree(sys.argv[1], ignore_errors=True)
+PY
 }
 trap cleanup EXIT
 
