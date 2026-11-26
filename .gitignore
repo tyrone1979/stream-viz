@@ -13,6 +13,11 @@ output/
 *.png
 *.json
 
+# ...except the figures quoted in the paper: these are derived from the
+# committed measurement JSON by examples/make_figures.py and are part of the
+# manuscript, not of a run.
+!paper/figures/*.png
+
 # Python
 __pycache__/
 *.py[cod]
