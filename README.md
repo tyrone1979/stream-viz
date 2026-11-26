@@ -319,6 +319,29 @@ pipeline's real capacity. Payloads are pre-encoded from the recording; only
 the sequence number and wall-clock timestamp are rewritten in the pacing
 loop.
 
+### Adding your own domain
+
+`third_party_adapter_template.py` is a runnable starting point rather than a
+description: it contains a loader for a two-column text recording plus a JSON
+sidecar, a fully-commented `DatasetSpec`, and a `--check` mode that validates a
+loader's output against the same contract the built-in adapters satisfy
+(`validate_record` in `src/datasets.py`: 2-D float32, finite, display-scaled to
+`|x| <= 1.5`, matching channel names, positive spectrum reference, non-empty
+checksums, and non-blank licence / DOI / citation fields).
+
+```bash
+cp third_party_adapter_template.py my_domain_adapter.py   # edit 3 places
+python my_domain_adapter.py --check --data-dir path/to/data
+```
+
+The check is structural, not physical -- it cannot tell whether the numbers are
+correct, which is why an adapter with a blank DOI is rejected rather than
+warned about. Once the spec is registered, `--source my_domain` (GUI),
+`--dataset my_domain` (ablation) and the download tool pick it up with no other
+change. This is the extension claim in testable form: if it takes more than one
+loader and one registry entry, the claim is false and the template is where
+that shows up.
+
 ## Interactive GUI (illustrative example)
 
 The GUI exists so a reviewer can *run* the pipeline rather than read about it,
@@ -512,8 +535,9 @@ point of shipping the harness rather than a screenshot.
 | `src/pipeline.py` | lifecycle, configuration, conservation report |
 | `webui/` | dashboard HTML, CSS and Canvas front-end |
 | `examples/` | ablation harness, extreme scenario, GUI launcher, demo, synthetic sweep, benchmark |
-| `tests/` | protocol / buffer / policy / scenario / end-to-end / GUI / dataset-registry tests |
+| `tests/` | protocol / buffer / policy / scenario / adapter-contract / end-to-end / GUI / dataset-registry tests |
 | `tools/` | dataset download+verify, term scan, reproducible GUI capture |
+| `third_party_adapter_template.py` | **runnable new-domain adapter + `--check` contract validator** |
 
 ## Outputs
 

@@ -89,6 +89,18 @@ class RealRecord:
         }
 
 
+# Public aliases for the two preprocessing helpers, so a third-party adapter
+# does not have to import private names.
+def display_scale(physical: np.ndarray) -> np.ndarray:
+    """Zero-centre and scale each channel to |x| <= 1.5 for display."""
+    return _robust_scale(physical)
+
+
+def spectral_reference(signals: np.ndarray) -> float:
+    """Fixed colour-scale reference computed from real windows of ``signals``."""
+    return _spectral_reference(signals)
+
+
 @dataclass
 class DatasetSpec:
     """Everything the framework needs to fetch, verify, describe and load."""
@@ -185,6 +197,63 @@ def verify_files(data_dir: Path, key: str = "mitdb") -> Dict[str, str]:
 def load_dataset(key: str, data_dir: Optional[Path] = None) -> RealRecord:
     spec = get_spec(key)
     return spec.loader(Path(data_dir) if data_dir else spec.data_dir)
+
+
+# Fields every adapter must populate for a report or figure caption to be
+# reproducible.  A missing licence or DOI is not a style problem: it makes the
+# derived number uncitable.
+_REQUIRED_METADATA = ("key", "label", "domain", "name", "license", "doi",
+                      "url", "citation", "physical_units", "preprocessing")
+
+
+def validate_record(rec: RealRecord, *, check_registry: bool = True) -> List[str]:
+    """Return the list of contract violations in an adapter's output.
+
+    This is the checklist a third-party adapter must pass before its data can
+    be replayed: shape/dtype/finiteness, display scaling, provenance and
+    checksums.  It deliberately does *not* check that the numbers are
+    physically plausible -- only the loader's author can assert that, which is
+    why ``dataset['citation']`` and ``dataset['doi']`` are mandatory.
+    """
+    problems: List[str] = []
+    sig = np.asarray(rec.signals)
+    phys = np.asarray(rec.signals_physical)
+
+    if sig.ndim != 2:
+        problems.append(f"signals must be 2-D (n_samples, n_channels), got {sig.shape}")
+    else:
+        if sig.shape[0] != rec.n_samples:
+            problems.append(
+                f"n_samples={rec.n_samples} but signals has {sig.shape[0]} rows")
+        if sig.shape[1] != len(rec.sig_names):
+            problems.append(
+                f"{len(rec.sig_names)} channel names for {sig.shape[1]} columns")
+        if not np.all(np.isfinite(sig)):
+            problems.append("signals contains non-finite values")
+        peak = float(np.max(np.abs(sig))) if sig.size else 0.0
+        if peak > 1.5 + 1e-6:
+            problems.append(
+                f"signals must be display-scaled to |x|<=1.5, peak is {peak:.3g}")
+    if phys.shape != sig.shape:
+        problems.append(f"signals_physical {phys.shape} != signals {sig.shape}")
+    if rec.n_samples < 1:
+        problems.append("empty recording")
+    if rec.fs <= 0:
+        problems.append(f"sampling rate must be positive, got {rec.fs}")
+    if not (np.isfinite(rec.spectrum_reference) and rec.spectrum_reference > 0):
+        problems.append(
+            f"spectrum_reference must be finite and >0, got {rec.spectrum_reference}")
+    if check_registry and rec.dataset_key not in REGISTRY:
+        problems.append(f"dataset_key {rec.dataset_key!r} is not registered")
+
+    meta = rec.dataset or {}
+    missing = [k for k in _REQUIRED_METADATA if not str(meta.get(k, "")).strip()]
+    if missing:
+        problems.append(f"dataset metadata missing: {', '.join(missing)}")
+    if not rec.checksums:
+        problems.append(
+            "no checksums: a record that cannot be verified cannot be cited")
+    return problems
 
 
 # ---------------------------------------------------------------------------
