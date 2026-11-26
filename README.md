@@ -559,11 +559,10 @@ point of shipping the harness rather than a screenshot.
 - `output/benchmark/benchmark.json` — synthetic throughput/buffer sweep
 - `measurements/policy_ablation.json`, `measurements/extreme_scenario.json` —
   **the archived measurements**: the exact rows behind every table and figure in
-  `paper/`, committed so a clone can check the numbers without re-running them
-- `paper/figures/fig{2,3,4,5}_*.png` — **the manuscript figures**, regenerated
-  from the files above by `python examples/make_figures.py`; no figure is a
-  hand-edited screenshot except Fig. 4, which `tools/capture_gui.py` captures
-  headlessly
+  the manuscript, committed so a clone can check the numbers without re-running
+  them. The manuscript itself and its figure-generation script are kept out of
+  this repository's public mirror; the figures are derived from these files
+  alone, and their captions state the command that produced them.
 
 ## Reference measurements (delivery path)
 
